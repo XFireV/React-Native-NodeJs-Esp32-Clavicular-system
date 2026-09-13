@@ -15,7 +15,7 @@ const starting = async() => {
 
 app.post("/home", async(req, rep) => {
     console.log(req.body, req.ip)
-    return {ligar: 2, estado: "HIGH"}
+    return {ligar: 2, estado: 1}
 })
 
 starting()
