@@ -1,8 +1,10 @@
-import Fastify, { fastify } from 'fastify'
+import Fastify from 'fastify'
 import { supabase } from './Supabase/supabase.js'
-const app = fastify({logger: true})
+const app = Fastify({logger: true})
 
 const IpTest = "https://floyd-hygiene-antivirus-rec.trycloudflare.com"
+
+const metadados = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"]
 
 const starting = async() => {
     const port = process.env.PORT || 3333
@@ -16,8 +18,10 @@ const starting = async() => {
 }
 
 app.post("/home", async(req, rep) => {
+    const dataLdr = req.body.LDRState
     console.log(req.body, req.ip)
-    return {ligar: 2, estado: 1}
+    await saveData(dataLdr ,req.body.mac)
+    return {ligar: 2, estado: 1, servPin: 34, graus: 180}
 })
 
 starting()
@@ -52,6 +56,21 @@ async function handleConfirm(ip) {
     } catch (error) {
         console.log(`erro: ${error}`)
     } finally {clearTimeout(timeout)}
+}
+
+const saveData = async(ldr, mac) => {
+    const rawData = ldr.map((i, index) => {
+        return {
+            [metadados[index]] : i
+        }
+    })
+    const dataReal = Object.assign({}, ...rawData)
+    try {
+        const {data} = await supabase.from("IPs").update({"ldr": dataReal}).eq("mac",mac).select()
+        console.log(data)
+    } catch(error) {
+        console.log(error)
+    }
 }
 
 const removeConfirm = async(ip, IPComplex) => {
