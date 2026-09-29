@@ -7,7 +7,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 
-#define serverUrl "https://node-clavicular-system.onrender.com/home"
+#define serverUrl "https://node-clavicular-system.onrender.com/"
 #define localHostUrl "http://192.168.0.113:3333/home"
 
 #define s0 18
