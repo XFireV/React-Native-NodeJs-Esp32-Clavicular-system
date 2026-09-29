@@ -32,7 +32,7 @@ app.post("/pass", async(req, rep) => {
     });
 })
 
-app.post("/passAdm", async(req, rep) => {
+app.post("/update", async(req, rep) => {
     const novaSenha = req.body.pass;
     
     return rep.send({ 
@@ -41,7 +41,7 @@ app.post("/passAdm", async(req, rep) => {
     });
 })
 
-app.post("/receive", async(req, rep) => {
+app.post("/push", async(req, rep) => {
     const senha = req.body.pass;
     
 
