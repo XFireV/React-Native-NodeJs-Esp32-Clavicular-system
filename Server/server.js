@@ -24,30 +24,86 @@ app.post("/home", async(req, rep) => {
     return {ligar: 2, estado: 1, servPin: 34, graus: 180}
 })
 
+// 1. Rota para Buscar Senhas no Banco
 app.post("/pass", async(req, rep) => {
+    const mac = req.body.mac;
     
-    return rep.send({ 
-        senhaAdm: "88881111",
-        senhaUser: "12345678" 
-    });
+    try {
+        // Busca a senhaAdm e senhaUser na tabela userequips onde o mac bate
+        const { data, error } = await supabase
+            .from("userequips")
+            .select("senhaAdm, senhaUser")
+            .eq("mac", mac)
+            .single(); // Retorna apenas 1 objeto em vez de array
+
+        if (error) throw error;
+
+        return rep.send({ 
+            senhaAdm: data.senhaAdm,
+            senhaUser: data.senhaUser 
+        });
+    } catch (error) {
+        app.log.error("Erro ao buscar senhas:", error.message);
+        // Retorna senhas vazias ou erro para o ESP32 tratar
+        return rep.status(500).send({ senhaAdm: "", senhaUser: "" });
+    }
 })
 
+// 2. Rota para Atualizar a Senha ADM
 app.post("/update", async(req, rep) => {
     const novaSenha = req.body.pass;
+    const mac = req.body.mac;
     
-    return rep.send({ 
-        confirm: true, 
-        pass: novaSenha 
-    });
+    try {
+        // Atualiza a coluna senhaAdm da tabela userequips
+        const { error } = await supabase
+            .from("userequips")
+            .update({ senhaAdm: novaSenha })
+            .eq("mac", mac);
+
+        if (error) throw error;
+
+        return rep.send({ 
+            confirm: true, 
+            pass: novaSenha 
+        });
+    } catch (error) {
+        app.log.error("Erro no update da senha ADM:", error.message);
+        return rep.send({ 
+            confirm: false, 
+            pass: null 
+        });
+    }
 })
 
+// 3. Rota para Ativar e Salvar no Histórico
 app.post("/push", async(req, rep) => {
     const senha = req.body.pass;
+    const mac = req.body.mac;
     
+    try {
+        // Insere um novo registro na tabela historico
+        const { error } = await supabase
+            .from("historico")
+            .insert([
+                { 
+                  mac: mac, 
+                  acao: "Sistema Ativado", 
+                  senha_utilizada: senha, 
+                  // data_hora é preenchido pelo default(now()) do próprio Supabase, 
+                  // mas você pode enviar daqui se quiser: data_hora: new Date()
+                }
+            ]);
 
-    return rep.send({ 
-        confirm: "Sistema ativado com sucesso pelo Node!" 
-    });
+        if (error) throw error;
+
+        return rep.send({ 
+            confirm: "Sistema ativado com sucesso pelo Node!" 
+        });
+    } catch (error) {
+        app.log.error("Erro ao registrar histórico:", error.message);
+        return rep.status(500).send({ error: "Falha ao salvar historico" });
+    }
 })
 
 starting()
