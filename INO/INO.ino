@@ -125,7 +125,7 @@ class displayManag {
         serializeJson(doc, payload); 
 
         HTTPClient http;
-        http.begin(client, inUseUrl);
+        http.begin(client, String(inUseUrl) + "push");
         http.setTimeout(5000);
         http.addHeader("Content-Type", "application/json");
     
@@ -165,7 +165,7 @@ class displayManag {
         serializeJson(doc, payload); 
 
         HTTPClient http;
-        http.begin(client, inUseUrl);
+        http.begin(client, String(inUseUrl) + "pass");
         http.setTimeout(5000);
         http.addHeader("Content-Type", "application/json");
     
@@ -211,7 +211,7 @@ class displayManag {
         serializeJson(doc, send);
 
         HTTPClient http;
-        http.begin(client, inUseUrl);
+        http.begin(client, String(inUseUrl) + "update");
         http.setTimeout(10000);
         http.addHeader("Content-Type", "application/json");
         
