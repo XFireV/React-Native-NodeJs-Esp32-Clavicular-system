@@ -24,6 +24,32 @@ app.post("/home", async(req, rep) => {
     return {ligar: 2, estado: 1, servPin: 34, graus: 180}
 })
 
+app.post("/pass", async(req, rep) => {
+    
+    return rep.send({ 
+        senhaAdm: "88881111",
+        senhaUser: "12345678" 
+    });
+})
+
+app.post("/passAdm", async(req, rep) => {
+    const novaSenha = req.body.pass;
+    
+    return rep.send({ 
+        confirm: true, 
+        pass: novaSenha 
+    });
+})
+
+app.post("/receive", async(req, rep) => {
+    const senha = req.body.pass;
+    
+
+    return rep.send({ 
+        confirm: "Sistema ativado com sucesso pelo Node!" 
+    });
+})
+
 starting()
 
 const canal = supabase
