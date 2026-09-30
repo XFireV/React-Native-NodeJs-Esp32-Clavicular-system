@@ -85,11 +85,16 @@ WebServer server(80);
 const int ledPin = 2;
 
 unsigned long tempoUltimaLeitura = 0;
-const int intervaloLeitura = 2000;
+const int intervaloLeitura = 3500;
+const int inativity = 40000;
+unsigned long lastPress = millis();
 
 int senhaADM = 88881111;
 String senhaUser = "";
+String sketchAdminPass = "";
 bool acess = false;
+
+bool activity;
 
 enum screens { HOME, ATIVE, STATUS, SWITCHADMPASS, IP };
 
@@ -198,7 +203,7 @@ class displayManag {
       } else {Serial.println("Wifi desconectado, ou senha/ssid errados"); return 2;} 
     }
 
-    bool updateAdminPass() {
+    void updateAdminPass() {
       if(WiFi.status() == WL_CONNECTED) {
         WiFiClientSecure client;
         client.setCACert(root_ca);
@@ -231,22 +236,22 @@ class displayManag {
             Serial.println(response["pass"].as<String>());
 
             http.end();
-            return response["confirm"].as<bool>();
+            return;
             
           } else {
             Serial.print("Erro no JSON: ");
             Serial.println(error.c_str());
             http.end();
-            return false;
+            return ;
           }
         } else {
           Serial.print("Erro no POST: ");
           Serial.println(httpResponseCode);
           http.end();
-          return false;
+          return ;
         }
       } 
-      return false;
+      return;
     }
 
     String clearSystem(const int size, String text) {
@@ -257,26 +262,25 @@ class displayManag {
     }
 
     void digits(char car, bool tipo) {
+      String &sketchPass = tipo == true ? sketchAdminPass : senhaUser;
       switch (car) {
         case '#':
-          if (senhaUser.length() > 0) {
-            senhaUser.remove(senhaUser.length() - 1);
+          if (sketchPass.length() > 0) {
+            sketchPass.remove(sketchPass.length() - 1);
           }
           break;
         case '*':
-          if (senhaUser.length() == 8) {
+          if (sketchPass.length() == 8) {
             if (tipo) {
-              bool certo = updateAdminPass();
-              if(certo) {editing = false; senhaUser = ""; return;} else{editing = false; senhaUser = "";}
+              updateAdminPass();
             } else {
               depuratePass();
             }
           }
           break;
         default:
-          if (senhaUser.length() < 8 && car >= '0' && car <= '9') {
-            senhaUser += car;
-          }
+          if (sketchPass.length() < 8) {
+            sketchPass += car;
           break;
       }
     }
@@ -312,6 +316,14 @@ class displayManag {
       lcd.init();
       lcd.backlight();
       lcd.clear();
+    }
+
+    void resetToHome() {
+      atualScreen = HOME;
+      editing = true;
+      acess = false;
+      senhaUser = "";
+      updateLcd();
     }
 
     void starting(char caract) {       
@@ -474,7 +486,7 @@ void setup() {
 
   Serial.begin(115200);
   delay(2000);
-
+  
   pinMode(2, OUTPUT);
 
   pinMode(s0, OUTPUT);
@@ -508,7 +520,10 @@ void loop() {
 
   if (caract != NO_KEY) {
     display.updateLcd();
+    lastPress = millis();
   }
+
+  if(millis() - lastPress >= inativity && atualScreen != HOME) display.resetToHome();
 
   if (millis() - tempoUltimaLeitura >= intervaloLeitura) {
     tempoUltimaLeitura = millis();
