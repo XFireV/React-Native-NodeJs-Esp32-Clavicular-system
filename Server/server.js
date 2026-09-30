@@ -239,14 +239,15 @@ supabase
     .on('postgres_changes', { event: "UPDATE", schema: "public", table: "IPs", filter: "confirm=eq.true" }, async payload => {
         console.log(`[REALTIME] Trigger em confirm para o IP: ${payload.new.ip}`)
         const IP = payload.new.ip
-        await removeConfirm(IP, IpTest)
+        const Mac = payload.new.mac
+        await removeConfirm(IP, IpTest, mac)
     })
     .subscribe()
 
-async function handleConfirm(ip) {
+async function handleConfirm(ip, openT) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 4000)
-    const payload = { "pino": 13 }
+    const payload = { "ative": true, "time" : openT }
 
     try {
         const response = await fetch(`${ip}/led`, {
@@ -275,10 +276,31 @@ const removeConfirm = async (ip, IPComplex) => {
             .select()
 
         if (data && data.length > 0) {
-            await handleConfirm(IPComplex)
+            const value = await takeTimeout()
+            await handleConfirm(IPComplex, value)
         }
     } catch (error) {
         console.log("Erro no removeConfirm:", error)
+    }
+}
+
+const takeTimeout = async (mac) => {
+    const tempoPadrao = 5000; 
+    if (!mac) return tempoPadrao;
+
+    try {
+        const { data, error } = await supabase
+            .from("equipes")
+            .select("opentime")
+            .eq("mac", mac)
+            .maybeSingle()
+
+        if (error) throw error
+
+        return data?.opentime || tempoPadrao; 
+    } catch (error) {
+        console.error("[TAKE TIMEOUT] Erro ao buscar tempo:", error.message)
+        return tempoPadrao;
     }
 }
 
