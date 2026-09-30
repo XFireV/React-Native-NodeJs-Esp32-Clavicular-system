@@ -2,7 +2,7 @@ import Fastify from 'fastify'
 import { supabase } from './Supabase/supabase.js'
 const app = Fastify({logger: true})
 
-const IpTest = "https://blog-disbelief-region.ngrok-free.dev "
+const IpTest = "https://blog-disbelief-region.ngrok-free.dev"
 
 const metadados = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"]
 
@@ -24,30 +24,31 @@ app.post("/home", async(req, rep) => {
     return {ligar: 2, estado: 1, servPin: 34, graus: 180}
 })
 
-// 1. Rota para Buscar Senhas no Banco
 app.post("/pass", async(req, rep) => {
     const mac = req.body.mac;
-    const passe = req.body.pass
+    const passe = req.body.pass;
     
     try {
         const { data, error } = await supabase
             .from("userequips")
             .select("passe")
-            .eq("passe",passe)
-            .single(); 
+            .eq("passe", passe)
+            .maybeSingle(); 
 
-        if (error) throw error;
+        const senhaAdmin = await pushAdmin(mac);
 
-        if(!data.passe) {
-            const senha = await pushAdmin(mac)
-            if(senha) return rep.send({ senhaUser: data.passe, senhaAdm: senha });
+        if (data && data.passe) {
+            return rep.send({ senhaUser: data.passe, senhaAdm: senhaAdmin || "" });
+        } else if (senhaAdmin && senhaAdmin === passe) {
+            return rep.send({ senhaUser: "", senhaAdm: senhaAdmin });
+        } else {
+            return rep.send({ senhaUser: "", senhaAdm: "" });
         }
     } catch (error) {
         app.log.error("Erro ao buscar senhas:", error.message);
         return rep.status(500).send({ senhaAdm: "", senhaUser: "" });
     }
 })
-
 // atualizar a senha ADM
 app.post("/update", async(req, rep) => {
     const novaSenha = req.body.pass;
@@ -119,7 +120,7 @@ const pushAdmin = async(mac) => {
             .from("IPs")
             .select("passAdmin")
             .eq("mac", mac)
-            .single()
+            .maybeSingle()
 
         if(error) throw error
         if(!data.passAdmin) return ""  
@@ -127,6 +128,7 @@ const pushAdmin = async(mac) => {
 
     } catch(error){
         app.log.error("erro: ", error.message)
+        return ""
     }
 }
 
@@ -152,7 +154,7 @@ async function handleConfirm(ip) {
     try {
         const response = await fetch(`${ip}/led`, {
             method: "POST",
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
             body: JSON.stringify(payload),
             signal: controller.signal
         })
@@ -165,6 +167,10 @@ async function handleConfirm(ip) {
 }
 
 const saveData = async(ldr, mac, ip) => {
+    if (!ldr || !Array.isArray(ldr)) {
+        console.log("Dados de LDR ausentes ou inválidos")
+        return
+    }
     const rawData = ldr.map((i, index) => {
         return {
             [metadados[index]] : i
