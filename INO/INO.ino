@@ -7,7 +7,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 
-#define serverUrl "https://node-clavicular-system.onrender.com/"
+#define serverUrl "https://node-clavicular-system.onrender.com/" 
 #define localHostUrl "http://192.168.0.113:3333/home"
 
 #define s0 18
@@ -18,8 +18,8 @@
 
 //configs de rede
 const char* inUseUrl = serverUrl;
-const char* ssid = "Tati";
-const char* password = "A28T10c24";
+const char* ssid = "IFSUL-Atendimento";
+const char* password = "esmeralda2026";
 
 IPAddress ipLocal(192, 168, 0, 124);
 IPAddress gateway(192,168,0,1);
@@ -53,8 +53,8 @@ const char TECLAS_MATRIZ[LINHAS][COLUNAS] = {  // Matriz de caracteres (mapeamen
   { '*', '0', '#', 'D' }
 };
 
-const byte PINOS_LINHAS[LINHAS] = { 13, 12, 14, 27 };
-const byte PINOS_COLUNAS[COLUNAS] = { 26, 25, 33, 32 };
+byte PINOS_LINHAS[LINHAS] = { 13, 12, 14, 27 };
+byte PINOS_COLUNAS[COLUNAS] = { 26, 25, 33, 32 };
 
 Keypad keypad = Keypad(makeKeymap(TECLAS_MATRIZ), PINOS_LINHAS, PINOS_COLUNAS, LINHAS, COLUNAS);
 
@@ -96,7 +96,7 @@ bool acess = false;
 
 bool activity;
 
-enum screens { HOME, ATIVE, STATUS, SWITCHADMPASS, IP };
+enum screens { HOME, ATIVE, STATS, SWITCHADMPASS, IP };
 
 screens atualScreen;
 
@@ -126,6 +126,7 @@ class displayManag {
         String payload;
 
         doc["pass"] = senhaUser;
+        doc["mac"] = WiFi.macAddress();
 
         serializeJson(doc, payload); 
 
@@ -166,6 +167,7 @@ class displayManag {
         String payload;
 
         doc["pass"] = senhaUser;
+        doc["mac"] = WiFi.macAddress();
 
         serializeJson(doc, payload); 
 
@@ -190,7 +192,7 @@ class displayManag {
               if(acessAdm == senhaUser) {return 0;} else if(acessUser == senhaUser) {return 1;} else {return 2;}
             }
           } else {
-              Serial.println(error);
+              Serial.println(error.c_str());
               http.end();
               return 2;
           }
@@ -213,6 +215,7 @@ class displayManag {
         String send;
 
         doc["pass"] = senhaUser;
+        doc["mac"] = WiFi.macAddress();
         serializeJson(doc, send);
 
         HTTPClient http;
@@ -281,6 +284,7 @@ class displayManag {
         default:
           if (sketchPass.length() < 8) {
             sketchPass += car;
+          }
           break;
       }
     }
@@ -370,7 +374,7 @@ class displayManag {
           lcd.print(clearSystem(16, "press 5"));
           break;
 
-        case STATUS:
+        case STATS:
           String showLdr = "";
           if (list != NULL) {
             for (int i = 0; i < 10; i++) {
@@ -390,7 +394,11 @@ class displayManag {
 void enviarPost(bool listaT[], int listaV[]) {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClientSecure client;
-    client.setCACert(root_ca);
+    
+    // uso Real
+    // client.setCACert(root_ca); 
+
+    client.setInsecure();
 
     JsonDocument payloadDoc;
     JsonDocument response; 
@@ -407,7 +415,7 @@ void enviarPost(bool listaT[], int listaV[]) {
     serializeJson(payloadDoc, JsonPayload);
 
     HTTPClient http;
-    http.begin(client, inUseUrl);
+    http.begin(client, String(inUseUrl) + "home");
     http.setTimeout(10000);
     http.addHeader("Content-Type", "application/json");
 
@@ -479,6 +487,38 @@ void parearNovo() {
   server.send(200, "text/plain", WiFi.macAddress());
 }
 
+void registrarIPInicial() {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure client;
+    //client.setCACert(root_ca);
+    client.setInsecure();
+    JsonDocument doc;
+    doc["mac"] = WiFi.macAddress();
+    doc["ip"] = WiFi.localIP().toString();
+
+    String payload;
+    serializeJson(doc, payload);
+
+    HTTPClient http;
+    http.begin(client, String(inUseUrl) + "register-ip");
+    http.setTimeout(7000);
+    http.addHeader("Content-Type", "application/json");
+
+    int responseCode = http.POST(payload);
+
+    if (responseCode > 0) {
+      Serial.print("Registro de IP retornou código: ");
+      Serial.println(responseCode);
+      String resposta = http.getString();
+      Serial.println("Resposta: " + resposta);
+    } else {
+      Serial.print("Erro ao registrar IP: ");
+      Serial.println(responseCode);
+    }
+    http.end();
+  }
+}
+
 displayManag display(0x27, 16, 2);
 
 void setup() {
@@ -505,6 +545,8 @@ void setup() {
   }
   Serial.println("\nConectado! IP do ESP32:");
   Serial.println(WiFi.localIP());
+
+  registrarIPInicial();
 
   server.on("/led", HTTP_POST, handleLed);
   server.on("/off", offset);
