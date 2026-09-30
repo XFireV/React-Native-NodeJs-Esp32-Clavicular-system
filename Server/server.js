@@ -3,7 +3,7 @@ import { supabase } from './Supabase/supabase.js'
 
 const app = Fastify({ logger: true })
 
-const IpTest = "https://blog-disbelief-region.ngrok-free.dev"
+const IpTest = "https://blog-disbelief-region.ngrok-free.dev -> http://192.168.15.124:80"
 const metadados = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"]
 
 const starting = async () => {
