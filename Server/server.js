@@ -20,42 +20,40 @@ const starting = async() => {
 app.post("/home", async(req, rep) => {
     const dataLdr = req.body.LDRState
     console.log(req.body, req.ip)
-    await saveData(dataLdr ,req.body.mac)
+    await saveData(dataLdr ,req.body.mac, req.body.ip)
     return {ligar: 2, estado: 1, servPin: 34, graus: 180}
 })
 
 // 1. Rota para Buscar Senhas no Banco
 app.post("/pass", async(req, rep) => {
     const mac = req.body.mac;
+    const passe = req.body.pass
     
     try {
-        // Busca a senhaAdm e senhaUser na tabela userequips onde o mac bate
         const { data, error } = await supabase
             .from("userequips")
-            .select("senhaAdm, senhaUser")
-            .eq("mac", mac)
-            .single(); // Retorna apenas 1 objeto em vez de array
+            .select("passe")
+            .eq("passe",passe)
+            .single(); 
 
         if (error) throw error;
 
-        return rep.send({ 
-            senhaAdm: data.senhaAdm,
-            senhaUser: data.senhaUser 
-        });
+        if(!data.passe) {
+            const senha = await pushAdmin(mac)
+            if(senha) return rep.send({ senhaUser: data.passe, senhaAdm: senha });
+        }
     } catch (error) {
         app.log.error("Erro ao buscar senhas:", error.message);
-        // Retorna senhas vazias ou erro para o ESP32 tratar
         return rep.status(500).send({ senhaAdm: "", senhaUser: "" });
     }
 })
 
-// 2. Rota para Atualizar a Senha ADM
+// atualizar a senha ADM
 app.post("/update", async(req, rep) => {
     const novaSenha = req.body.pass;
     const mac = req.body.mac;
     
     try {
-        // Atualiza a coluna senhaAdm da tabela userequips
         const { error } = await supabase
             .from("userequips")
             .update({ senhaAdm: novaSenha })
@@ -76,22 +74,31 @@ app.post("/update", async(req, rep) => {
     }
 })
 
-// 3. Rota para Ativar e Salvar no Histórico
+// ativar e Salvar no Histórico
 app.post("/push", async(req, rep) => {
     const senha = req.body.pass;
     const mac = req.body.mac;
-    
+
     try {
-        // Insere um novo registro na tabela historico
+        const { data, error: erroTake } = await supabase
+            .from("userequips")
+            .select("equipes(equipeid), usuarios(user)")
+            .eq("passe", senha)
+            .maybeSingle()
+
+        if(erroTake) throw erroTake
+        
+        const user = data?.usuarios?.user || "Admin"
+        const equipe = data?.equipes?.equipeid
+        
         const { error } = await supabase
             .from("historico")
             .insert([
                 { 
-                  mac: mac, 
-                  acao: "Sistema Ativado", 
-                  senha_utilizada: senha, 
-                  // data_hora é preenchido pelo default(now()) do próprio Supabase, 
-                  // mas você pode enviar daqui se quiser: data_hora: new Date()
+                    user: user,
+                    from: "Físico",
+                    descricao: "Sistema Ativado",
+                    equipid: equipe
                 }
             ]);
 
@@ -105,6 +112,23 @@ app.post("/push", async(req, rep) => {
         return rep.status(500).send({ error: "Falha ao salvar historico" });
     }
 })
+
+const pushAdmin = async(mac) => {
+    try {
+        const{data, error} = await supabase
+            .from("IPs")
+            .select("passAdmin")
+            .eq("mac", mac)
+            .single()
+
+        if(error) throw error
+        if(!data.passAdmin) return ""  
+        return data.passAdmin
+
+    } catch(error){
+        app.log.error("erro: ", error.message)
+    }
+}
 
 starting()
 
@@ -140,7 +164,7 @@ async function handleConfirm(ip) {
     } finally {clearTimeout(timeout)}
 }
 
-const saveData = async(ldr, mac) => {
+const saveData = async(ldr, mac, ip) => {
     const rawData = ldr.map((i, index) => {
         return {
             [metadados[index]] : i
@@ -148,7 +172,7 @@ const saveData = async(ldr, mac) => {
     })
     const dataReal = Object.assign({}, ...rawData)
     try {
-        const {data} = await supabase.from("IPs").update({"ldr": dataReal}).eq("mac",mac).select()
+        const {data} = await supabase.from("IPs").update({"ldr": dataReal, "ip": ip}).eq("mac",mac).select()
         console.log(data)
     } catch(error) {
         console.log(error)
