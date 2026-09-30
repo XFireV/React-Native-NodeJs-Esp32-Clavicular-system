@@ -401,6 +401,7 @@ void enviarPost(bool listaT[], int listaV[]) {
     }
     payloadDoc["LEDState"] = digitalRead(ledPin);
     payloadDoc["mac"] = WiFi.macAddress();
+    payloadDoc["ip"] = WiFi.localIP().toString();
 
     String JsonPayload;
     serializeJson(payloadDoc, JsonPayload);
