@@ -6,8 +6,9 @@
 #include <WiFiClient.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
+#include <ESP32Servo.h>
 
-#define serverUrl "https://node-clavicular-system.onrender.com/" 
+#define serverUrl "https://node-clavicular-system.onrender.com/"
 #define localHostUrl "http://192.168.0.113:3333/home"
 
 #define s0 18
@@ -18,29 +19,27 @@
 
 //configs de rede
 const char* inUseUrl = serverUrl;
-const char* ssid = "IFSUL-Atendimento";
-const char* password = "esmeralda2026";
+const char* ssid = "TATI VIVO-2.4Ghz";
+const char* password = "Lajeado10.";
 
-IPAddress ipLocal(192, 168, 0, 124);
-IPAddress gateway(192,168,0,1);
-IPAddress subnetMask(255,255,255,0);
+IPAddress ipLocal(192, 168, 15, 124);
+IPAddress gateway(192, 168, 15, 1);
+IPAddress subnetMask(255, 255, 255, 0);
 
-IPAddress dns1(8,8,8,8);
-IPAddress dns2(1,1,1,1);
-
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+IPAddress dns1(8, 8, 8, 8);
+IPAddress dns2(1, 1, 1, 1);
 
 int ldrs[10][4] = {
-  {0, 0, 0, 0}, 
-  {1, 0, 0, 0},
-  {0, 1, 0, 0}, 
-  {1, 1, 0, 0}, 
-  {0, 0, 1, 0}, 
-  {1, 0, 1, 0}, 
-  {0, 1, 1, 0},
-  {1, 1, 1, 0}, 
-  {0, 0, 0, 1},
-  {1, 0, 0, 1} 
+  { 0, 0, 0, 0 },
+  { 1, 0, 0, 0 },
+  { 0, 1, 0, 0 },
+  { 1, 1, 0, 0 },
+  { 0, 0, 1, 0 },
+  { 1, 0, 1, 0 },
+  { 0, 1, 1, 0 },
+  { 1, 1, 1, 0 },
+  { 0, 0, 0, 1 },
+  { 1, 0, 0, 1 }
 };
 
 const byte LINHAS = 4;   // Linhas do teclado
@@ -53,10 +52,12 @@ const char TECLAS_MATRIZ[LINHAS][COLUNAS] = {  // Matriz de caracteres (mapeamen
   { '*', '0', '#', 'D' }
 };
 
-byte PINOS_LINHAS[LINHAS] = { 13, 12, 14, 27 };
+byte PINOS_LINHAS[LINHAS] = { 22, 16, 14, 27 };
 byte PINOS_COLUNAS[COLUNAS] = { 26, 25, 33, 32 };
 
 Keypad keypad = Keypad(makeKeymap(TECLAS_MATRIZ), PINOS_LINHAS, PINOS_COLUNAS, LINHAS, COLUNAS);
+
+Servo meuServo;
 
 const char* root_ca =
   "-----BEGIN CERTIFICATE-----\n"
@@ -85,371 +86,400 @@ WebServer server(80);
 const int ledPin = 2;
 
 unsigned long tempoUltimaLeitura = 0;
-const int intervaloLeitura = 3500;
+const int intervaloLeitura = 15000;
 const int inativity = 40000;
+int timeout = 0;
+unsigned long startTimeout = millis();
 unsigned long lastPress = millis();
 
-int senhaADM = 88881111;
 String senhaUser = "";
 String sketchAdminPass = "";
 bool acess = false;
 
+bool systemOn = false;
+
 bool activity;
 
-enum screens { HOME, ATIVE, STATS, SWITCHADMPASS, IP };
+enum screens { HOME,
+               ATIVE,
+               STATS,
+               SWITCHADMPASS,
+               IP };
 
 screens atualScreen;
 
 class displayManag {
-  private: 
-    LiquidCrystal_I2C lcd;
-    bool acess;
-    bool editing;
+private:
+  LiquidCrystal_I2C lcd;
+  bool acess;
+  bool editing;
 
-    void depuratePass() {
-      int passResult = receivePasses(); 
-      if (passResult == 0 || passResult == 1) {
-        acess = true;
-        editing = false;      
-      } else {
-        senhaUser = "";
-      }
+  void depuratePass() {
+    int passResult = receivePasses();
+    if (passResult == 0 || passResult == 1) {
+      acess = true;
+      editing = false;
+    } else {
+      senhaUser = "";
     }
+  }
 
-    void pushSystem() {
-      if(WiFi.status() == WL_CONNECTED) {
-        WiFiClientSecure client;
-        client.setCACert(root_ca);
+  void pushSystem() {
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFiClientSecure client;
+      client.setCACert(root_ca);
 
-        JsonDocument doc;
-        JsonDocument jsonPayload; 
-        String payload;
+      JsonDocument doc;
+      JsonDocument jsonPayload;
+      String payload;
 
-        doc["pass"] = senhaUser;
-        doc["mac"] = WiFi.macAddress();
+      doc["pass"] = senhaUser;
+      doc["mac"] = WiFi.macAddress();
 
-        serializeJson(doc, payload); 
+      serializeJson(doc, payload);
 
-        HTTPClient http;
-        http.begin(client, String(inUseUrl) + "push");
-        http.setTimeout(5000);
-        http.addHeader("Content-Type", "application/json");
-    
-        int responseCode = http.POST(payload);
+      HTTPClient http;
+      http.begin(client, String(inUseUrl) + "push");
+      http.setTimeout(5000);
+      http.addHeader("Content-Type", "application/json");
 
-        if(responseCode > 0) {
-          Serial.println("Código HTTP: ");
-          Serial.println(responseCode);
+      int responseCode = http.POST(payload);
 
-          String received = http.getString();
-          DeserializationError error = deserializeJson(jsonPayload, received);
+      if (responseCode > 0) {
+        Serial.println("Código HTTP: ");
+        Serial.println(responseCode);
 
-          if(!error) {
-            Serial.print("confirmação: ");
-            Serial.println(jsonPayload["confirm"].as<String>());
-          } else {
-            Serial.println(responseCode);
-            http.end();
-            return;
-          }
-          http.end();
-        } else {Serial.println("Wifi desconectado, ou senha/ssid errados"); return;} 
-      }
-    }
+        String received = http.getString();
+        DeserializationError error = deserializeJson(jsonPayload, received);
 
-    int receivePasses() {
-      if(WiFi.status() == WL_CONNECTED) {
-        WiFiClientSecure client;
-        client.setCACert(root_ca);
-
-        JsonDocument doc;
-        JsonDocument jsonPayload; 
-        String payload;
-
-        doc["pass"] = senhaUser;
-        doc["mac"] = WiFi.macAddress();
-
-        serializeJson(doc, payload); 
-
-        HTTPClient http;
-        http.begin(client, String(inUseUrl) + "pass");
-        http.setTimeout(5000);
-        http.addHeader("Content-Type", "application/json");
-    
-        int responseCode = http.POST(payload);
-
-        if(responseCode > 0) {
-          Serial.println("Código HTTP: ");
-          Serial.println(responseCode);
-
-          String received = http.getString();
-          DeserializationError error = deserializeJson(jsonPayload, received);
-
-          if(!error) {
-            if(jsonPayload.containsKey("senhaAdm") && jsonPayload.containsKey("senhaUser")){
-              String acessAdm = jsonPayload["senhaAdm"];
-              String acessUser = jsonPayload["senhaUser"];
-              if(acessAdm == senhaUser) {return 0;} else if(acessUser == senhaUser) {return 1;} else {return 2;}
-            }
-          } else {
-              Serial.println(error.c_str());
-              http.end();
-              return 2;
-          }
-          http.end();
+        if (!error) {
+          Serial.print("confirmação: ");
+          Serial.println(jsonPayload["confirm"].as<String>());
         } else {
-            Serial.println(responseCode);
-            http.end();
-            return 2;
-          }
-      } else {Serial.println("Wifi desconectado, ou senha/ssid errados"); return 2;} 
-    }
-
-    void updateAdminPass() {
-      if(WiFi.status() == WL_CONNECTED) {
-        WiFiClientSecure client;
-        client.setCACert(root_ca);
-
-        JsonDocument doc;
-        JsonDocument response;
-        String send;
-
-        doc["pass"] = senhaUser;
-        doc["mac"] = WiFi.macAddress();
-        serializeJson(doc, send);
-
-        HTTPClient http;
-        http.begin(client, String(inUseUrl) + "update");
-        http.setTimeout(10000);
-        http.addHeader("Content-Type", "application/json");
-        
-        int httpResponseCode = http.POST(send);
-
-        if(httpResponseCode > 0) {
-          Serial.print("Código HTTP: ");
-          Serial.println(httpResponseCode);
-
-          String payload = http.getString();
-          DeserializationError error = deserializeJson(response, payload);
-      
-          if (!error) {
-            Serial.print("Senha ADM nova: ");
-            Serial.println(payload);
-            Serial.println(response["confirm"].as<String>());
-            Serial.println(response["pass"].as<String>());
-
-            http.end();
-            return;
-            
-          } else {
-            Serial.print("Erro no JSON: ");
-            Serial.println(error.c_str());
-            http.end();
-            return ;
-          }
-        } else {
-          Serial.print("Erro no POST: ");
-          Serial.println(httpResponseCode);
+          Serial.println(responseCode);
           http.end();
-          return ;
+          return;
         }
-      } 
+        http.end();
+      } else {
+        Serial.println("Wifi desconectado, ou senha/ssid errados");
+        return;
+      }
+    }
+  }
+
+  int receivePasses() {
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFiClientSecure client;
+      client.setCACert(root_ca);
+
+      JsonDocument doc;
+      JsonDocument jsonPayload;
+      String payload;
+
+      doc["pass"] = senhaUser;
+      doc["mac"] = WiFi.macAddress();
+
+      serializeJson(doc, payload);
+
+      HTTPClient http;
+      http.begin(client, String(inUseUrl) + "pass");
+      http.setTimeout(5000);
+      http.addHeader("Content-Type", "application/json");
+
+      int responseCode = http.POST(payload);
+
+      if (responseCode > 0) {
+        Serial.println("Código HTTP: ");
+        Serial.println(responseCode);
+
+        String received = http.getString();
+        DeserializationError error = deserializeJson(jsonPayload, received);
+
+        if (!error) {
+          if (jsonPayload.containsKey("senhaAdm") && jsonPayload.containsKey("senhaUser")) {
+            String acessAdm = jsonPayload["senhaAdm"];
+            String acessUser = jsonPayload["senhaUser"];
+            if (acessAdm == senhaUser) {
+              return 0;
+            } else if (acessUser == senhaUser) {
+              return 1;
+            } else {
+              return 2;
+            }
+          }
+        } else {
+          Serial.println(error.c_str());
+          http.end();
+          return 2;
+        }
+        http.end();
+      } else {
+        Serial.println(responseCode);
+        http.end();
+        return 2;
+      }
+    } else {
+      Serial.println("Wifi desconectado, ou senha/ssid errados");
+      return 2;
+    }
+  }
+
+  void updateAdminPass() {
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFiClientSecure client;
+      client.setCACert(root_ca);
+
+      JsonDocument doc;
+      JsonDocument response;
+      String send;
+
+      doc["pass"] = senhaUser;
+      doc["mac"] = WiFi.macAddress();
+      serializeJson(doc, send);
+
+      HTTPClient http;
+      http.begin(client, String(inUseUrl) + "update");
+      http.setTimeout(10000);
+      http.addHeader("Content-Type", "application/json");
+
+      int httpResponseCode = http.POST(send);
+
+      if (httpResponseCode > 0) {
+        Serial.print("Código HTTP: ");
+        Serial.println(httpResponseCode);
+
+        String payload = http.getString();
+        DeserializationError error = deserializeJson(response, payload);
+
+        if (!error) {
+          Serial.print("Senha ADM nova: ");
+          Serial.println(payload);
+          Serial.println(response["confirm"].as<String>());
+          Serial.println(response["pass"].as<String>());
+
+          http.end();
+          return;
+
+        } else {
+          Serial.print("Erro no JSON: ");
+          Serial.println(error.c_str());
+          http.end();
+          return;
+        }
+      } else {
+        Serial.print("Erro no POST: ");
+        Serial.println(httpResponseCode);
+        http.end();
+        return;
+      }
+    }
+    return;
+  }
+
+  String clearSystem(const int size, String text) {
+    while (text.length() < size) {
+      text += " ";
+    }
+    return text;
+  }
+
+  void digits(char car, bool tipo) {
+    String& sketchPass = tipo == true ? sketchAdminPass : senhaUser;
+    switch (car) {
+      case '#':
+        if (sketchPass.length() > 0) {
+          sketchPass.remove(sketchPass.length() - 1);
+        }
+        break;
+      case '*':
+        if (sketchPass.length() == 8) {
+          if (tipo) {
+            updateAdminPass();
+          } else {
+            depuratePass();
+          }
+        }
+        break;
+      default:
+        if (sketchPass.length() < 8) {
+          sketchPass += car;
+        }
+        break;
+    }
+  }
+
+  void navigating(char car) {
+    uint8_t indexScreen = (uint8_t)atualScreen;
+    if (car == '5' && !editing) {
+      if (atualScreen == ATIVE) {
+        pushSystem();
+      } else if (atualScreen == SWITCHADMPASS) {
+        senhaUser = "";
+        editing = true;
+      }
       return;
     }
 
-    String clearSystem(const int size, String text) {
-      while (text.length() < size) {
-        text += " ";
-      } 
-      return text;
+    const char type = (car == '4') ? 'L' : (car == '6') ? 'R'
+                                                        : 'N';
+
+    if (type == 'N') return;
+
+    uint8_t newIndex;
+    if (type == 'R') {
+      newIndex = (indexScreen == 4) ? 0 : indexScreen + 1;
+    } else {
+      newIndex = (indexScreen == 0) ? 4 : indexScreen - 1;
     }
 
-    void digits(char car, bool tipo) {
-      String &sketchPass = tipo == true ? sketchAdminPass : senhaUser;
-      switch (car) {
-        case '#':
-          if (sketchPass.length() > 0) {
-            sketchPass.remove(sketchPass.length() - 1);
+    atualScreen = (screens)newIndex;
+  }
+
+public:
+  displayManag(uint8_t adress, uint8_t colunas, uint8_t linhas)
+    : lcd(adress, colunas, linhas) {
+    acess = false;
+    editing = true;
+  }
+
+  void startLcd() {
+    lcd.init();
+    lcd.backlight();
+    lcd.clear();
+  }
+
+  void resetToHome() {
+    atualScreen = HOME;
+    editing = true;
+    acess = false;
+    senhaUser = "";
+    updateLcd();
+  }
+
+  void starting(char caract) {
+    if (caract == NO_KEY) return;
+
+    if (!editing) {
+      navigating(caract);
+      return;
+    }
+
+    bool typePass = (atualScreen == SWITCHADMPASS);
+    digits(caract, typePass);
+  }
+
+  void updateLcd(bool list[] = NULL) {
+    lcd.clear();
+
+    switch (atualScreen) {
+      case HOME:
+        lcd.setCursor(0, 0);
+        lcd.print(clearSystem(16, "Ativar Sistema"));
+        lcd.setCursor(0, 1);
+        lcd.print(clearSystem(16, "Senha: " + senhaUser));
+        break;
+
+      case IP:
+        lcd.setCursor(0, 0);
+        lcd.print(clearSystem(16, "IP do sistema:"));
+        lcd.setCursor(0, 1);
+        lcd.print(clearSystem(16, WiFi.localIP().toString()));
+        break;
+
+      case SWITCHADMPASS:
+        lcd.setCursor(0, 0);
+        lcd.print(clearSystem(16, "Nova Senha ADM:"));
+        lcd.setCursor(0, 1);
+        lcd.print(clearSystem(16, senhaUser));
+        break;
+
+      case ATIVE:
+        lcd.setCursor(0, 0);
+        lcd.print(clearSystem(16, "System boot"));
+        lcd.setCursor(0, 1);
+        lcd.print(clearSystem(16, "press 5"));
+        break;
+
+      case STATS:
+        String showLdr = "";
+        if (list != NULL) {
+          for (int i = 0; i < 10; i++) {
+            showLdr += list[i] ? "1" : "0";
           }
-          break;
-        case '*':
-          if (sketchPass.length() == 8) {
-            if (tipo) {
-              updateAdminPass();
-            } else {
-              depuratePass();
-            }
-          }
-          break;
-        default:
-          if (sketchPass.length() < 8) {
-            sketchPass += car;
-          }
-          break;
-      }
+        }
+
+        lcd.setCursor(0, 0);
+        lcd.print(clearSystem(16, "Status LDRs:"));
+        lcd.setCursor(0, 1);
+        lcd.print(clearSystem(16, showLdr));
+        break;
     }
-    
-    void navigating(char car) {
-      uint8_t indexScreen = (uint8_t)atualScreen;
-      if(car == '5' && !editing) {
-        if(atualScreen == ATIVE) {pushSystem();} else if(atualScreen == SWITCHADMPASS) { senhaUser = ""; editing = true;} 
-        return;
-      }
-
-      const char type = (car == '4') ? 'L' : (car == '6') ? 'R' : 'N';
-
-      if (type == 'N') return; 
-
-      uint8_t newIndex;
-      if (type == 'R') {
-        newIndex = (indexScreen == 4) ? 0 : indexScreen + 1;
-      } else { 
-        newIndex = (indexScreen == 0) ? 4 : indexScreen - 1;
-      }
-
-      atualScreen = (screens)newIndex;
-    }
-
-  public:
-    displayManag(uint8_t adress, uint8_t colunas, uint8_t linhas) : lcd(adress, colunas, linhas) {
-      acess = false;
-      editing = true;
-    }
-
-    void startLcd() {
-      lcd.init();
-      lcd.backlight();
-      lcd.clear();
-    }
-
-    void resetToHome() {
-      atualScreen = HOME;
-      editing = true;
-      acess = false;
-      senhaUser = "";
-      updateLcd();
-    }
-
-    void starting(char caract) {       
-      if (caract == NO_KEY) return; 
-      
-      if (!editing) {
-        navigating(caract);
-        return;
-      }
-
-      bool typePass = (atualScreen == SWITCHADMPASS); 
-      digits(caract, typePass);
-    }
-
-    void updateLcd(bool list[] = NULL) {
-      lcd.clear(); 
-
-      switch (atualScreen) {
-        case HOME:
-          lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, "Ativar Sistema"));
-          lcd.setCursor(0, 1);
-          lcd.print(clearSystem(16, "Senha: " + senhaUser));
-          break; 
-
-        case IP: 
-          lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, "IP do sistema:"));
-          lcd.setCursor(0, 1);
-          lcd.print(clearSystem(16, WiFi.localIP().toString())); 
-          break; 
-
-        case SWITCHADMPASS:
-          lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, "Nova Senha ADM:"));
-          lcd.setCursor(0, 1);
-          lcd.print(clearSystem(16, senhaUser));
-          break;
-
-        case ATIVE:
-          lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, "System boot"));
-          lcd.setCursor(0, 1);
-          lcd.print(clearSystem(16, "press 5"));
-          break;
-
-        case STATS:
-          String showLdr = "";
-          if (list != NULL) {
-            for (int i = 0; i < 10; i++) {
-              showLdr += list[i] ? "1" : "0"; 
-            }
-          }
-
-          lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, "Status LDRs:"));
-          lcd.setCursor(0, 1);
-          lcd.print(clearSystem(16, showLdr)); 
-          break;
-      }
-    }
+  }
 };
 
 void enviarPost(bool listaT[], int listaV[]) {
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFiClientSecure client;
-    
-    // uso Real
-    // client.setCACert(root_ca); 
+  if (WiFi.status() != WL_CONNECTED) return;
 
-    client.setInsecure();
+  WiFiClientSecure client;
+  client.setCACert(root_ca);
 
-    JsonDocument payloadDoc;
-    JsonDocument response; 
+  JsonDocument payloadDoc;
+  JsonDocument response;
 
-    for (int data = 0; data < 10; data++) {
-      payloadDoc["LDRState"].add(listaT[data]);
-      payloadDoc["LDRValue"].add(listaV[data]);
-    }
-    payloadDoc["LEDState"] = digitalRead(ledPin);
-    payloadDoc["mac"] = WiFi.macAddress();
-    payloadDoc["ip"] = WiFi.localIP().toString();
+  for (int data = 0; data < 10; data++) {
+    payloadDoc["LDRState"].add(listaT[data]);
+    payloadDoc["LDRValue"].add(listaV[data]);
+  }
+  payloadDoc["LEDState"] = digitalRead(ledPin);
+  payloadDoc["mac"] = WiFi.macAddress();
+  payloadDoc["ip"] = WiFi.localIP().toString();
 
-    String JsonPayload;
-    serializeJson(payloadDoc, JsonPayload);
+  String JsonPayload;
+  serializeJson(payloadDoc, JsonPayload);
 
-    HTTPClient http;
-    http.begin(client, String(inUseUrl) + "home");
-    http.setTimeout(10000);
-    http.addHeader("Content-Type", "application/json");
+  String targetUrl = String(inUseUrl);
+  if (!targetUrl.endsWith("/")) targetUrl += "/";
+  targetUrl += "home";
 
-    int httpResponseCode = http.POST(JsonPayload);
+  HTTPClient http;
+  http.begin(client, targetUrl);
+  http.setTimeout(10000);
+  http.addHeader("Content-Type", "application/json");
 
-    if (httpResponseCode > 0) {
-      Serial.print("Código HTTP: ");
-      Serial.println(httpResponseCode);
+  int httpResponseCode = http.POST(JsonPayload);
 
-      String payload = http.getString();
-      DeserializationError error = deserializeJson(response, payload);
-      
-      if (!error) {
-        Serial.print("Resposta do Servidor: ");
-        Serial.println(payload);
+  if (httpResponseCode > 0) {
+    Serial.print("[Core 0] Código HTTP: ");
+    Serial.println(httpResponseCode);
 
-        if (!response["ligar"].isNull() && !response["estado"].isNull()) {
-          int pino = response["ligar"];
-          int estado = response["estado"];
-          Serial.print("Pino: ");
-          Serial.println(pino);
-          Serial.print("Estado: ");
-          Serial.println(estado);
+    String payload = http.getString();
+    DeserializationError error = deserializeJson(response, payload);
 
-          pinMode(pino, OUTPUT);
-          digitalWrite(pino, estado);
-        }
+    if (!error) {
+      Serial.print("[Core 0] Resposta do Servidor: ");
+      Serial.println(payload);
+
+      if (response["ligar"].is<int>() && response["estado"].is<int>()) {
+        int pino = response["ligar"].as<int>();
+        int estado = response["estado"].as<int>();
+
+        Serial.printf("[Core 0] Acionando Pino: %d -> Estado: %d\n", pino, estado);
+
+        pinMode(pino, OUTPUT);
+        digitalWrite(pino, estado);
       }
     } else {
-      Serial.print("Erro no POST: ");
-      Serial.println(httpResponseCode);
+      Serial.print("[Core 0] Erro ao parsear JSON de resposta: ");
+      Serial.println(error.c_str());
     }
-    http.end();
+  } else {
+    Serial.print("[Core 0] Erro no POST HTTP: ");
+    Serial.println(httpResponseCode);
   }
+
+  http.end();
+  client.stop();
 }
 
 void updateMultiplex(int bits[]) {
@@ -462,15 +492,37 @@ void updateMultiplex(int bits[]) {
 void handleLed() {
   if (server.hasArg("plain")) {
     String payload = server.arg("plain");
-    Serial.print("Payload: ");
+    Serial.print("Payload recebido: ");
     Serial.println(payload);
-    digitalWrite(ledPin, 1);
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      bool ative = doc["ative"] | true;
+      unsigned long tempoAcionamento = doc["time"] | 5000;
+
+      if (ative) {
+        digitalWrite(ledPin, HIGH);
+        meuServo.write(180);
+
+        Serial.print("LED ligado por (ms): ");
+        Serial.println(tempoAcionamento);
+
+        startTimeout = millis();
+        timeout = tempoAcionamento;
+        systemOn = ative;
+      }
+    } else {
+      Serial.println("Erro ao parsear JSON do /led");
+      digitalWrite(ledPin, 1);
+    }
   }
 
-  JsonDocument doc;
-  doc["status"] = "ok";
+  JsonDocument docResp;
+  docResp["status"] = "ok";
   String resposta;
-  serializeJson(doc, resposta);
+  serializeJson(docResp, resposta);
 
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", resposta);
@@ -490,8 +542,8 @@ void parearNovo() {
 void registrarIPInicial() {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClientSecure client;
-    //client.setCACert(root_ca);
-    client.setInsecure();
+    client.setCACert(root_ca);
+    //client.setInsecure();
     JsonDocument doc;
     doc["mac"] = WiFi.macAddress();
     doc["ip"] = WiFi.localIP().toString();
@@ -523,11 +575,17 @@ displayManag display(0x27, 16, 2);
 
 void setup() {
   display.startLcd();
-  if(!WiFi.config(ipLocal, gateway, subnetMask, dns1, dns2)) {Serial.println("Erro ao configurar IP estático");}
+  if (!WiFi.config(ipLocal, gateway, subnetMask, dns1, dns2)) { Serial.println("Erro ao configurar IP estático"); }
 
   Serial.begin(115200);
   delay(2000);
-  
+
+  meuServo.setPeriodHertz(50);
+  meuServo.attach(13, 500, 2400);
+
+  meuServo.write(180);
+  delay(2000);
+  meuServo.write(0);
   pinMode(2, OUTPUT);
 
   pinMode(s0, OUTPUT);
@@ -561,19 +619,25 @@ void loop() {
   char caract = keypad.getKey();
   display.starting(caract);
 
+  if (systemOn && millis() - startTimeout >= timeout) {
+    systemOn = false;
+    meuServo.write(0);
+    Serial.println("[SERVO DESLIGADO]");
+  }
+
   if (caract != NO_KEY) {
     display.updateLcd();
     lastPress = millis();
   }
 
-  if(millis() - lastPress >= inativity && atualScreen != HOME) display.resetToHome();
+  if (millis() - lastPress >= inativity && atualScreen != HOME) display.resetToHome();
 
   if (millis() - tempoUltimaLeitura >= intervaloLeitura) {
     tempoUltimaLeitura = millis();
 
     bool listaTrue[10] = { false };
     int listaValores[10] = { 0 };
-    int ldrBits[4] = {0,0,0,0};
+    int ldrBits[4] = { 0, 0, 0, 0 };
     int atualValue = 0;
 
     for (int i = 0; i < 10; i++) {
@@ -587,7 +651,7 @@ void loop() {
       listaValores[i] = leitura;
       listaTrue[i] = (leitura > 1200);
       atualValue++;
-  }
+    }
 
     for (int i = 0; i < 10; i++) {
       Serial.println(" -Sensor " + String(i) + ": " + String(listaValores[i]));
