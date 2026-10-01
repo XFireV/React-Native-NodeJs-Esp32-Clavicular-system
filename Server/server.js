@@ -240,7 +240,7 @@ supabase
         console.log(`[REALTIME] Trigger em confirm para o IP: ${payload.new.ip}`)
         const IP = payload.new.ip
         const Mac = payload.new.mac
-        await removeConfirm(IP, IpTest, mac)
+        await removeConfirm(IP, IpTest, Mac)
     })
     .subscribe()
 
