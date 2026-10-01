@@ -266,7 +266,7 @@ async function handleConfirm(ip, openT) {
     }
 }
 
-const removeConfirm = async (ip, IPComplex) => {
+const removeConfirm = async (ip, IPComplex, mac) => {
     try {
         const { data } = await supabase
             .from("IPs")
@@ -276,7 +276,7 @@ const removeConfirm = async (ip, IPComplex) => {
             .select()
 
         if (data && data.length > 0) {
-            const value = await takeTimeout()
+            const value = await takeTimeout(mac)
             await handleConfirm(IPComplex, value)
         }
     } catch (error) {
