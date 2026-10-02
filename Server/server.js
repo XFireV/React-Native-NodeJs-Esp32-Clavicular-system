@@ -126,7 +126,6 @@ app.post("/update", async (req, rep) => {
     }
 
     try {
-        // Atualiza passAdmin na tabela IPs associada ao MAC do ESP32
         const { error } = await supabase
             .from("IPs")
             .update({ passAdmin: novaSenha })
@@ -200,7 +199,7 @@ const pushAdmin = async (mac) => {
             .maybeSingle()
 
         if (error) throw error
-        return data?.passAdmin || "" // Previne crash se data for null
+        return data?.passAdmin || ""
     } catch (error) {
         app.log.error("Erro no pushAdmin:", error.message)
         return ""
@@ -237,7 +236,7 @@ const saveData = async (ldr, mac, ip) => {
 supabase
     .channel("db-changes")
     .on('postgres_changes', { event: "UPDATE", schema: "public", table: "IPs", filter: "confirm=eq.true" }, async payload => {
-        console.log(`[REALTIME] Trigger em confirm ativado para o IP: ${payload.new.ip}`)
+        console.log(`[REALTIME] Trigger em confirm para o IP: ${payload.new.ip}`)
         const IP = payload.new.ip
         const Mac = payload.new.mac
         await removeConfirm(IP, IpTest, Mac)
@@ -249,7 +248,6 @@ async function handleConfirm(baseUrl, openT) {
     const timeout = setTimeout(() => controller.abort(), 5000)
     const payload = { "ative": true, "time": openT }
 
-    // Formata a URL para evitar barra dupla //led
     const urlFinal = baseUrl.endsWith('/') ? `${baseUrl}led` : `${baseUrl}/led`;
 
     try {
@@ -275,7 +273,6 @@ async function handleConfirm(baseUrl, openT) {
 
 const removeConfirm = async (ip, IPComplex, mac) => {
     try {
-        // Atualiza a flag confirm usando o MAC como chave primária confiável
         const { data, error } = await supabase
             .from("IPs")
             .update({ 'confirm': false })
@@ -316,10 +313,6 @@ const takeTimeout = async (mac) => {
     } catch (error) {
         console.error("[TAKE TIMEOUT] Erro ao buscar tempo:", error.message)
         return tempoPadrao;
-    }
-}
-
-starting()
     }
 }
 
