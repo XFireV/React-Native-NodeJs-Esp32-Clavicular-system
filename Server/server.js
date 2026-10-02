@@ -271,8 +271,8 @@ const removeConfirm = async (ip, IPComplex, mac) => {
         const { data } = await supabase
             .from("IPs")
             .update({ 'confirm': false })
-            .eq('ip', ip)
-            .eq('confirm', true)
+            .eq("ip", ip)
+            .eq("mac", mac)
             .select()
 
         if (data && data.length > 0) {
