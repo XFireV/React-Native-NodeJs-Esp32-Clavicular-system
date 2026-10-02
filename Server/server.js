@@ -250,7 +250,7 @@ async function handleConfirm(ip, openT) {
     const payload = { "ative": true, "time" : openT }
 
     try {
-        const response = await fetch(`${ip}/led`, {
+        const response = await fetch(`${IpTest}/led`, {
             method: "POST",
             headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
             body: JSON.stringify(payload),
@@ -273,6 +273,7 @@ const removeConfirm = async (ip, IPComplex, mac) => {
             .update({ 'confirm': false })
             .eq("ip", ip)
             .eq("mac", mac)
+            .eq('confirm', true)
             .select()
 
         if (data && data.length > 0) {
