@@ -237,30 +237,37 @@ const saveData = async (ldr, mac, ip) => {
 supabase
     .channel("db-changes")
     .on('postgres_changes', { event: "UPDATE", schema: "public", table: "IPs", filter: "confirm=eq.true" }, async payload => {
-        console.log(`[REALTIME] Trigger em confirm para o IP: ${payload.new.ip}`)
+        console.log(`[REALTIME] Trigger em confirm ativado para o IP: ${payload.new.ip}`)
         const IP = payload.new.ip
         const Mac = payload.new.mac
         await removeConfirm(IP, IpTest, Mac)
     })
     .subscribe()
 
-async function handleConfirm(ip, openT) {
+async function handleConfirm(baseUrl, openT) {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 4000)
-    const payload = { "ative": true, "time" : openT }
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const payload = { "ative": true, "time": openT }
+
+    // Formata a URL para evitar barra dupla //led
+    const urlFinal = baseUrl.endsWith('/') ? `${baseUrl}led` : `${baseUrl}/led`;
 
     try {
-        const response = await fetch(`${IpTest}/led`, {
+        console.log(`[HANDLE CONFIRM] Disparando POST para: ${urlFinal} com time=${openT}`)
+        const response = await fetch(urlFinal, {
             method: "POST",
-            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            headers: { 
+                'Content-Type': 'application/json', 
+                'ngrok-skip-browser-warning': 'true' 
+            },
             body: JSON.stringify(payload),
             signal: controller.signal
         })
-        console.log("[HANDLE CONFIRM] Status ESP:", response.status)
+        console.log("[HANDLE CONFIRM] Status resposta ESP:", response.status)
         const returnData = await response.json()
-        console.log("[HANDLE CONFIRM] Dados ESP:", returnData)
+        console.log("[HANDLE CONFIRM] Dados retornados pelo ESP:", returnData)
     } catch (error) {
-        console.log(`[HANDLE CONFIRM] Erro ao chamar ESP: ${error.message}`)
+        console.log(`[HANDLE CONFIRM] Erro ao chamar ESP via Ngrok: ${error.message}`)
     } finally {
         clearTimeout(timeout)
     }
@@ -268,17 +275,24 @@ async function handleConfirm(ip, openT) {
 
 const removeConfirm = async (ip, IPComplex, mac) => {
     try {
-        const { data } = await supabase
+        // Atualiza a flag confirm usando o MAC como chave primária confiável
+        const { data, error } = await supabase
             .from("IPs")
             .update({ 'confirm': false })
-            .eq("ip", ip)
             .eq("mac", mac)
             .eq('confirm', true)
             .select()
 
+        if (error) {
+            console.error("Erro na query do removeConfirm:", error.message)
+            return
+        }
+
         if (data && data.length > 0) {
             const value = await takeTimeout(mac)
             await handleConfirm(IPComplex, value)
+        } else {
+            console.log("[REMOVE CONFIRM] Nenhuma linha atualizada (confirm=true não encontrado).")
         }
     } catch (error) {
         console.log("Erro no removeConfirm:", error)
@@ -302,6 +316,10 @@ const takeTimeout = async (mac) => {
     } catch (error) {
         console.error("[TAKE TIMEOUT] Erro ao buscar tempo:", error.message)
         return tempoPadrao;
+    }
+}
+
+starting()
     }
 }
 
