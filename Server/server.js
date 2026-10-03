@@ -90,59 +90,66 @@ app.post("/register-ip", async (req, rep) => {
 // ROTA: Autenticação de Senha
 app.post("/pass", async (req, rep) => {
     const mac = req.body?.mac
-    const passe = req.body?.pass
+    const passeString = req.body?.pass 
+    const passeNum = Number(passeString) 
 
     try {
+        // Busca se é senha de usuário comum
         const { data, error } = await supabase
             .from("userequips")
             .select("passe")
-            .eq("passe", passe)
+            .eq("passe", passeNum)
+            .limit(1)
             .maybeSingle()
 
         if (error) throw error
 
-        const senhaAdmin = await pushAdmin(mac)
+        const senhaAdminRaw = await pushAdmin(mac)
+        
+        const dbPasseStr = data?.passe ? String(data.passe) : ""
+        const adminPasseStr = senhaAdminRaw ? String(senhaAdminRaw) : ""
 
-        if (data && data.passe) {
-            return rep.send({ senhaUser: data.passe, senhaAdm: senhaAdmin || "" })
-        } else if (senhaAdmin && senhaAdmin === passe) {
-            return rep.send({ senhaUser: "", senhaAdm: senhaAdmin })
+        console.log(`[PASS] Recebido: '${passeString}' | BD User: '${dbPasseStr}' | BD Admin: '${adminPasseStr}'`)
+
+        if (dbPasseStr && dbPasseStr === passeString) {
+            return rep.send({ senhaUser: dbPasseStr, senhaAdm: adminPasseStr })
+        } else if (adminPasseStr && adminPasseStr === passeString) {
+            return rep.send({ senhaUser: "", senhaAdm: adminPasseStr })
         } else {
             return rep.send({ senhaUser: "", senhaAdm: "" })
         }
     } catch (error) {
-        app.log.error("Erro ao buscar senhas:", error.message)
+        app.log.error(error, "Erro ao buscar senhas na rota /pass")
         return rep.status(500).send({ senhaAdm: "", senhaUser: "" })
     }
 })
 
 // ROTA: Atualizar a Senha ADM (Tabela 'IPs')
 app.post("/update", async (req, rep) => {
-    const novaSenha = req.body?.pass
+    const novaSenhaStr = req.body?.pass
     const mac = req.body?.mac
 
-    if (!mac || !novaSenha) {
+    if (!mac || !novaSenhaStr) {
         return rep.status(400).send({ confirm: false, pass: null })
     }
 
     try {
+        const novaSenhaNum = Number(novaSenhaStr) 
+
         const { error } = await supabase
             .from("IPs")
-            .update({ passAdmin: novaSenha })
-            .eq("mac", mac)
+            .update({ passAdmin: novaSenhaNum })
+            .ilike("mac", mac)
 
         if (error) throw error
 
         return rep.send({
             confirm: true,
-            pass: novaSenha
+            pass: novaSenhaStr
         })
     } catch (error) {
-        app.log.error("Erro no update da senha ADM:", error.message)
-        return rep.status(500).send({
-            confirm: false,
-            pass: null
-        })
+        app.log.error(error, "Erro no update da senha ADM")
+        return rep.status(500).send({ confirm: false, pass: null })
     }
 })
 
@@ -195,13 +202,14 @@ const pushAdmin = async (mac) => {
         const { data, error } = await supabase
             .from("IPs")
             .select("passAdmin")
-            .eq("mac", mac)
+            .ilike("mac", mac) 
+            .limit(1)
             .maybeSingle()
 
         if (error) throw error
-        return data?.passAdmin || ""
+        return data?.passAdmin || "" 
     } catch (error) {
-        app.log.error("Erro no pushAdmin:", error.message)
+        app.log.error(error, "Erro no pushAdmin")
         return ""
     }
 }
