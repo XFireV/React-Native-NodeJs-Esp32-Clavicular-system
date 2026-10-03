@@ -171,7 +171,7 @@ app.post("/push", async (req, rep) => {
     try {
         const { data, error: erroTake } = await supabase
             .from("userequips")
-            .select("equipes(equipe), usuarios(user)")
+            .select("equipes(equipid), usuarios(user)")
             .eq("passe", senha)
             .single()
 
@@ -180,7 +180,7 @@ app.post("/push", async (req, rep) => {
                 try {
                     const { error: errorAdm, data: dataAdm } = await supabase
                         .from("IPs")
-                        .select("equipes(equipe)")
+                        .select("equipes(equipid)")
                         .ilike("mac", mac)
                         .eq("passAdmin", senha)
                         .single()
@@ -196,7 +196,7 @@ app.post("/push", async (req, rep) => {
 
                     if (dataAdm) {
                         dados.user = "Administrador"
-                        dados.equipe = dataAdm?.equipes?.equipe || null
+                        dados.equipe = dataAdm?.equipes?.equipid || null
                     }
 
                 } catch (errCatchAdm) {
@@ -208,7 +208,7 @@ app.post("/push", async (req, rep) => {
             }
         } else {
             dados.user = data?.usuarios?.user || "Usuário"
-            dados.equipe = data?.equipes?.equipe || null
+            dados.equipe = data?.equipes?.equipid || null
         }
         const { error: erroInsert } = await supabase
             .from("historico")
