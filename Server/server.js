@@ -159,7 +159,7 @@ app.post("/push", async (req, rep) => {
     const mac = req.body?.mac
     const senha = typeof raw === 'string' ? Number(raw) : raw
 
-    const dados = { "equipe": null, "user": null, "opentime": 10000}
+    const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false }
 
     if (String(senha).length !== 8) {
         return rep.status(400).send({ error: "Senha excedente ou impossível" })
@@ -180,7 +180,7 @@ app.post("/push", async (req, rep) => {
                 try {
                     const { error: errorAdm, data: dataAdm } = await supabase
                         .from("IPs")
-                        .select("equipes(id, opentime)")
+                        .select("id") 
                         .ilike("mac", mac)
                         .eq("passAdmin", senha)
                         .single()
@@ -196,11 +196,24 @@ app.post("/push", async (req, rep) => {
 
                     if (dataAdm) {
                         dados.user = "Administrador"
-                        dados.equipe = dataAdm?.equipes?.id || null
-                        const sketchT = dataAdm?.equipes?.opentime
-                        if(sketchT != null) dados.opentime = sketchT
-                    }
+                        
+                        const { data: dataEq, error: errorEq } = await supabase
+                            .from("equipes")
+                            .select("id, opentime, ip")
+                            .ilike("mac", mac)
+                            .maybeSingle() 
 
+                        if (errorEq || !dataEq) {
+                            dados.opentime = 10000
+                            dados.skipHistorico = true
+                        } else {
+                            dados.equipe = dataEq.id
+                            dados.ip = dataEq.ip
+                            if (dataEq.opentime != null) {
+                                dados.opentime = dataEq.opentime
+                            }
+                        }
+                    }
                 } catch (errCatchAdm) {
                     app.log.error("Exceção na busca do Admin:", errCatchAdm?.message || errCatchAdm)
                     return rep.status(401).send({ error: "((Senha incorreta))" })
@@ -212,23 +225,29 @@ app.post("/push", async (req, rep) => {
             dados.user = data?.usuarios?.user || "Usuário"
             dados.equipe = data?.equipes?.id || null
             const sketchT = data?.equipes?.opentime
-            if(sketchT != null) dados.opentime = sketchT
+            if (sketchT != null) dados.opentime = sketchT
         }
-        const { error: erroInsert } = await supabase
-            .from("historico")
-            .insert([
-                {
-                    user: dados.user,
-                    from: "Físico",
-                    descricao: "Sistema Ativado",
-                    equipid: dados.equipe
-                }
-            ])
-        if (erroInsert) throw erroInsert
 
+        if (!dados.skipHistorico) {
+            const { error: erroInsert } = await supabase
+                .from("historico")
+                .insert([
+                    {
+                        user: dados.user,
+                        from: "Físico",
+                        descricao: "Sistema Ativado",
+                        equipid: dados.equipe
+                    }
+                ])
+                
+            if (erroInsert) throw erroInsert
+        } else {
+            app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
+        }
         return rep.send({
             confirm: "Sistema ativado com sucesso pelo Node!",
-            opentime: dados.opentime
+            opentime: dados.opentime,
+            ip: dados.ip
         })
 
     } catch (error) {
@@ -237,7 +256,6 @@ app.post("/push", async (req, rep) => {
     }
 })
 
-// Busca a senha Admin cadastrada para o MAC
 const pushAdmin = async (mac) => {
     if (!mac) return ""
     try {
