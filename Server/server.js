@@ -153,44 +153,81 @@ app.post("/update", async (req, rep) => {
     }
 })
 
-// ROTA: Ativar e Salvar no Histórico
+//Ativar e Salvar no Histórico
 app.post("/push", async (req, rep) => {
-    const senha = req.body?.pass
+    const raw = req.body?.pass
+    const mac = req.body?.mac
+    const senha = typeof raw === 'string' ? Number(raw) : raw
 
+    const dados = { "equipe": null, "user": null }
+
+    if (String(senha).length !== 8) {
+        return rep.status(400).send({ error: "Senha excedente ou impossível" })
+    }
     if (!senha) {
         return rep.status(400).send({ error: "Senha não fornecida" })
     }
-
+    
     try {
         const { data, error: erroTake } = await supabase
             .from("userequips")
-            .select("equipes(equipeid), usuarios(user)")
+            .select("equipes(equipe), usuarios(user)")
             .eq("passe", senha)
-            .maybeSingle()
+            .single()
 
-        if (erroTake) throw erroTake
+        if (erroTake) {
+            if (erroTake.code === "PGRST116") {
+                try {
+                    const { error: errorAdm, data: dataAdm } = await supabase
+                        .from("IPs")
+                        .select("equipes(equipe)")
+                        .ilike("mac", mac)
+                        .eq("passAdmin", senha)
+                        .single()
 
-        const user = data?.usuarios?.user || "Admin"
-        const equipe = data?.equipes?.equipeid
+                    if (errorAdm) {
+                        if (errorAdm.code === "PGRST116") {
+                            app.log.error("Senha inválida ou MAC não associado a um Admin:", errorAdm.message)
+                            return rep.status(401).send({ error: "Senha incorreta ou acesso negado" })
+                        } else {
+                            throw errorAdm
+                        }
+                    }
 
-        const { error } = await supabase
+                    if (dataAdm) {
+                        dados.user = "Administrador"
+                        dados.equipe = dataAdm?.equipes?.equipe || null
+                    }
+
+                } catch (errCatchAdm) {
+                    app.log.error("Exceção na busca do Admin:", errCatchAdm?.message || errCatchAdm)
+                    return rep.status(401).send({ error: "((Senha incorreta))" })
+                }
+            } else {
+                throw erroTake
+            }
+        } else {
+            dados.user = data?.usuarios?.user || "Usuário"
+            dados.equipe = data?.equipes?.equipe || null
+        }
+        const { error: erroInsert } = await supabase
             .from("historico")
             .insert([
                 {
-                    user: user,
+                    user: dados.user,
                     from: "Físico",
                     descricao: "Sistema Ativado",
-                    equipid: equipe
+                    equipid: dados.equipe
                 }
             ])
-
-        if (error) throw error
+        if (erroInsert) throw erroInsert
 
         return rep.send({
             confirm: "Sistema ativado com sucesso pelo Node!"
         })
+
     } catch (error) {
-        app.log.error("Erro ao registrar histórico:", error.message)
+        app.log.error("Erro ao registrar histórico:", error?.message || error)
         return rep.status(500).send({ error: "Falha ao salvar historico" })
     }
 })
