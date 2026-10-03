@@ -159,7 +159,7 @@ app.post("/push", async (req, rep) => {
     const mac = req.body?.mac
     const senha = typeof raw === 'string' ? Number(raw) : raw
 
-    const dados = { "equipe": null, "user": null }
+    const dados = { "equipe": null, "user": null, "opentime": 10000}
 
     if (String(senha).length !== 8) {
         return rep.status(400).send({ error: "Senha excedente ou impossível" })
@@ -171,7 +171,7 @@ app.post("/push", async (req, rep) => {
     try {
         const { data, error: erroTake } = await supabase
             .from("userequips")
-            .select("equipes(id), usuarios(user)")
+            .select("equipes(id, opentime), usuarios(user)")
             .eq("passe", senha)
             .single()
 
@@ -180,7 +180,7 @@ app.post("/push", async (req, rep) => {
                 try {
                     const { error: errorAdm, data: dataAdm } = await supabase
                         .from("IPs")
-                        .select("equipes(id)")
+                        .select("equipes(id, opentime)")
                         .ilike("mac", mac)
                         .eq("passAdmin", senha)
                         .single()
@@ -197,6 +197,8 @@ app.post("/push", async (req, rep) => {
                     if (dataAdm) {
                         dados.user = "Administrador"
                         dados.equipe = dataAdm?.equipes?.id || null
+                        const sketchT = dataAdm?.equipes?.opentime
+                        if(sketchT != null) dados.opentime = sketchT
                     }
 
                 } catch (errCatchAdm) {
@@ -209,6 +211,8 @@ app.post("/push", async (req, rep) => {
         } else {
             dados.user = data?.usuarios?.user || "Usuário"
             dados.equipe = data?.equipes?.id || null
+            const sketchT = data?.equipes?.opentime
+            if(sketchT != null) dados.opentime = sketchT
         }
         const { error: erroInsert } = await supabase
             .from("historico")
@@ -223,7 +227,8 @@ app.post("/push", async (req, rep) => {
         if (erroInsert) throw erroInsert
 
         return rep.send({
-            confirm: "Sistema ativado com sucesso pelo Node!"
+            confirm: "Sistema ativado com sucesso pelo Node!",
+            opentime: dados.opentime
         })
 
     } catch (error) {
