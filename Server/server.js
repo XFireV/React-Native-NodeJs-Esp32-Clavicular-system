@@ -155,101 +155,138 @@ app.post("/update", async (req, rep) => {
 
 //Ativar e Salvar no Histórico
 app.post("/push", async (req, rep) => {
+    const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
     const raw = req.body?.pass
     const mac = req.body?.mac
-    const senha = typeof raw === 'string' ? Number(raw) : raw
+    const user = req.body?.user
+    const from = req.body?.from
 
-    const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false }
-
-    if (String(senha).length !== 8) {
-        return rep.status(400).send({ error: "Senha excedente ou impossível" })
-    }
-    if (!senha) {
-        return rep.status(400).send({ error: "Senha não fornecida" })
-    }
-    
     try {
-        const { data, error: erroTake } = await supabase
-            .from("userequips")
-            .select("equipes(id, opentime), usuarios(user)")
-            .eq("passe", senha)
-            .single()
+        if (user != null && from != null) {
+            const { data, error } = await supabase
+                .from("usuarios")
+                .select("userequips(equipid)")
+                .eq("user", user)
+                .single()
 
-        if (erroTake) {
-            if (erroTake.code === "PGRST116") {
-                try {
-                    const { error: errorAdm, data: dataAdm } = await supabase
-                        .from("IPs")
-                        .select("id") 
-                        .ilike("mac", mac)
-                        .eq("passAdmin", senha)
-                        .single()
+            if (error) throw error
 
-                    if (errorAdm) {
-                        if (errorAdm.code === "PGRST116") {
-                            app.log.error("Senha inválida ou MAC não associado a um Admin:", errorAdm.message)
-                            return rep.status(401).send({ error: "Senha incorreta ou acesso negado" })
-                        } else {
-                            throw errorAdm
-                        }
-                    }
+            const dataUs = data?.userequips[0]?.equipid
 
-                    if (dataAdm) {
-                        dados.user = "Administrador"
-                        
-                        const { data: dataEq, error: errorEq } = await supabase
-                            .from("equipes")
-                            .select("id, opentime, ip")
-                            .ilike("mac", mac)
-                            .maybeSingle() 
-
-                        if (errorEq || !dataEq) {
-                            dados.opentime = 10000
-                            dados.skipHistorico = true
-                        } else {
-                            dados.equipe = dataEq.id
-                            dados.ip = dataEq.ip
-                            if (dataEq.opentime != null) {
-                                dados.opentime = dataEq.opentime
-                            }
-                        }
-                    }
-                } catch (errCatchAdm) {
-                    app.log.error("Exceção na busca do Admin:", errCatchAdm?.message || errCatchAdm)
-                    return rep.status(401).send({ error: "((Senha incorreta))" })
-                }
+            if (dataUs) {
+                dados.equipe = dataUs
+                dados.user = user
+                dados.from = "Facial"
             } else {
-                throw erroTake
+                return rep.status(404).send({ error: "Usuário sem equipe vinculada" })
+            }
+
+            const { data: equipD, error: equipE } = await supabase
+                .from("equipes")
+                .select("opentime")
+                .eq("id", dados.equipe)
+                .single()
+
+            if (!equipE && equipD) {
+                dados.opentime = equipD.opentime
             }
         } else {
-            dados.user = data?.usuarios?.user || "Usuário"
-            dados.equipe = data?.equipes?.id || null
-            const sketchT = data?.equipes?.opentime
-            if (sketchT != null) dados.opentime = sketchT
+            const senha = typeof raw === 'string' ? Number(raw) : raw
+
+            if (String(senha).length !== 8) {
+                return rep.status(400).send({ error: "Senha excedente ou impossível" })
+            }
+            if (!senha) {
+                return rep.status(400).send({ error: "Senha não fornecida" })
+            }
+
+            const { data, error: erroTake } = await supabase
+                .from("userequips")
+                .select("equipes(id, opentime), usuarios(user)")
+                .eq("passe", senha)
+                .single()
+
+            if (erroTake) {
+                if (erroTake.code === "PGRST116") {
+                    try {
+                        const { error: errorAdm, data: dataAdm } = await supabase
+                            .from("IPs")
+                            .select("id") 
+                            .ilike("mac", mac)
+                            .eq("passAdmin", senha)
+                            .single()
+
+                        if (errorAdm) {
+                            if (errorAdm.code === "PGRST116") {
+                                app.log.error("Senha inválida ou MAC não associado a um Admin:", errorAdm.message)
+                                return rep.status(401).send({ error: "Senha incorreta ou acesso negado" })
+                            } else {
+                                throw errorAdm
+                            }
+                        }
+
+                        if (dataAdm) {
+                            dados.user = "Administrador"
+
+                            const { data: dataEq, error: errorEq } = await supabase
+                                .from("equipes")
+                                .select("id, opentime, ip")
+                                .ilike("mac", mac)
+                                .maybeSingle()
+
+                            if (errorEq || !dataEq) {
+                                dados.opentime = 10000
+                                dados.skipHistorico = true
+                            } else {
+                                dados.equipe = dataEq.id
+                                dados.ip = dataEq.ip
+                                dados.from = "Físico"
+                                if (dataEq.opentime != null) {
+                                    dados.opentime = dataEq.opentime
+                                }
+                            }
+                        }
+                    } catch (errCatchAdm) {
+                        app.log.error("Exceção na busca do Admin:", errCatchAdm?.message || errCatchAdm)
+                        return rep.status(401).send({ error: "((Senha incorreta))" })
+                    }
+                } else {
+                    throw erroTake
+                }
+            } else {
+                dados.user = data?.usuarios?.user || "Usuário"
+                dados.equipe = data?.equipes?.id || null
+                dados.from = "Físico"
+                const sketchT = data?.equipes?.opentime
+                if (sketchT != null) dados.opentime = sketchT
+            }
         }
 
         if (!dados.skipHistorico) {
             const { error: erroInsert } = await supabase
                 .from("historico")
-                .insert([
-                    {
-                        user: dados.user,
-                        from: "Físico",
-                        descricao: "Sistema Ativado",
-                        equipid: dados.equipe
-                    }
-                ])
-                
+                .insert([{
+                    user: dados.user,
+                    from: dados.from,
+                    descricao: "Sistema Ativado",
+                    equipid: dados.equipe
+                }])
+
             if (erroInsert) throw erroInsert
+
+            return rep.send({
+                confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo Node!",
+                opentime: dados.opentime,
+                ip: dados.ip
+            })
         } else {
             app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
+            return rep.send({
+                confirm: "Sistema ativado com sucesso pelo Node (Admin)!",
+                opentime: dados.opentime,
+                ip: dados.ip
+            })
         }
-        return rep.send({
-            confirm: "Sistema ativado com sucesso pelo Node!",
-            opentime: dados.opentime,
-            ip: dados.ip
-        })
-
     } catch (error) {
         app.log.error("Erro ao registrar histórico:", error?.message || error)
         return rep.status(500).send({ error: "Falha ao salvar historico" })
