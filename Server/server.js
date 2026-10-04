@@ -263,6 +263,7 @@ app.post("/push", async (req, rep) => {
         }
 
         if (!dados.skipHistorico) {
+            await pushAtive(mac)
             const { error: erroInsert } = await supabase
                 .from("historico")
                 .insert([{
@@ -293,18 +294,13 @@ app.post("/push", async (req, rep) => {
     }
 })
 
-const pushAdmin = async (mac) => {
+const pushAtive = async (mac) => {
     if (!mac) return ""
     try {
         const { data, error } = await supabase
             .from("IPs")
-            .select("passAdmin")
+            .update({"ativo": true})
             .ilike("mac", mac) 
-            .limit(1)
-            .maybeSingle()
-
-        if (error) throw error
-        return data?.passAdmin || "" 
     } catch (error) {
         app.log.error(error, "Erro no pushAdmin")
         return ""
