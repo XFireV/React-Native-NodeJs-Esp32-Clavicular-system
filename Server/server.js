@@ -3,16 +3,36 @@ import { supabase } from './Supabase/supabase.js'
 
 const app = Fastify({ logger: true })
 
-const IpTest = "https://blog-disbelief-region.ngrok-free.dev"
+// URL do tunnel do Ngrok apontado para a porta 80 do ESP32 na sua rede local
+const NGROK_ESP32_URL = "https://blog-disbelief-region.ngrok-free.dev"
+
 const metadados = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"]
 
 const starting = async () => {
     const port = process.env.PORT || 3333
     try {
         await app.listen({ port: Number(port), host: '0.0.0.0' })
-        console.log(`[SERVIDOR] Executando na porta: ${port}`)
+        console.log(`[SERVIDOR RENDER] Executando na porta: ${port}`)
     } catch (error) {
         app.log.error(error)
+    }
+}
+
+// BUSCA SENHA ADMIN (Evita erro 'pushAdmin is not defined')
+const pushAdmin = async (mac) => {
+    if (!mac) return null
+    try {
+        const { data, error } = await supabase
+            .from("IPs")
+            .select("passAdmin")
+            .ilike("mac", mac)
+            .maybeSingle()
+
+        if (error) throw error
+        return data?.passAdmin || null
+    } catch (error) {
+        console.error("[PUSH ADMIN] Erro ao buscar senha Admin:", error.message)
+        return null
     }
 }
 
@@ -36,7 +56,7 @@ app.post("/home", async (req, rep) => {
     }
 })
 
-// ROTA: Registro inicial do IP (Verifica se já existe antes de inserir)
+// ROTA: Registro inicial do IP
 app.post("/register-ip", async (req, rep) => {
     const { mac, ip } = req.body || {}
 
@@ -94,7 +114,6 @@ app.post("/pass", async (req, rep) => {
     const passeNum = Number(passeString) 
 
     try {
-        // Busca se é senha de usuário comum
         const { data, error } = await supabase
             .from("userequips")
             .select("passe")
@@ -124,7 +143,7 @@ app.post("/pass", async (req, rep) => {
     }
 })
 
-// ROTA: Atualizar a Senha ADM (Tabela 'IPs')
+// ROTA: Atualizar a Senha ADM
 app.post("/update", async (req, rep) => {
     const novaSenhaStr = req.body?.pass
     const mac = req.body?.mac
@@ -153,7 +172,7 @@ app.post("/update", async (req, rep) => {
     }
 })
 
-//Ativar e Salvar no Histórico
+// ROTA: Ativar e Salvar no Histórico
 app.post("/push", async (req, rep) => {
     const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
     const raw = req.body?.pass
@@ -297,12 +316,12 @@ app.post("/push", async (req, rep) => {
 const pushAtive = async (mac) => {
     if (!mac) return ""
     try {
-        const { data, error } = await supabase
+        await supabase
             .from("IPs")
-            .update({"ativo": true})
+            .update({ "ativo": true })
             .ilike("mac", mac) 
     } catch (error) {
-        app.log.error(error, "Erro no pushAdmin")
+        app.log.error(error, "Erro no pushAtive")
         return ""
     }
 }
@@ -333,36 +352,45 @@ const saveData = async (ldr, mac, ip) => {
     }
 }
 
-// Realtime
+// REALTIME: Escuta alterações na coluna `confirm`
 supabase
     .channel("db-changes")
-    .on('postgres_changes', { event: "UPDATE", schema: "public", table: "IPs", filter: "confirm=eq.true" }, async payload => {
-        console.log(`[REALTIME] Trigger em confirm para o IP: ${payload.new.ip}`)
-        const IP = payload.new.ip
-        const Mac = payload.new.mac
-        await removeConfirm(IP, IpTest, Mac)
+    .on('postgres_changes', { 
+        event: "UPDATE", 
+        schema: "public", 
+        table: "IPs", 
+        filter: "confirm=eq.true" 
+    }, async payload => {
+        console.log(`[REALTIME] Trigger confirm disparado para MAC: ${payload.new.mac}`)
+        const macEsp = payload.new.mac
+        
+        if (macEsp) {
+            await removeConfirm(macEsp)
+        }
     })
     .subscribe()
 
-async function handleConfirm(baseUrl, openT) {
+// Dispara o acionamento para o ESP32 via Ngrok
+async function handleConfirm(openT) {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    const timeout = setTimeout(() => controller.abort(), 7000)
     const payload = { "ative": true, "time": openT }
 
-    const urlFinal = baseUrl.endsWith('/') ? `${baseUrl}led` : `${baseUrl}/led`;
+    // Rota pública do Ngrok direcionada para o ESP32
+    const urlFinal = `${NGROK_ESP32_URL}/led`
 
     try {
-        console.log(`[HANDLE CONFIRM] Disparando POST para: ${urlFinal} com time=${openT}`)
+        console.log(`[HANDLE CONFIRM] Disparando POST para Ngrok: ${urlFinal} com time=${openT}`)
         const response = await fetch(urlFinal, {
             method: "POST",
             headers: { 
-                'Content-Type': 'application/json', 
+                'Content-Type': 'application/json',
                 'ngrok-skip-browser-warning': 'true' 
             },
             body: JSON.stringify(payload),
             signal: controller.signal
         })
-        console.log("[HANDLE CONFIRM] Status resposta ESP:", response.status)
+        console.log("[HANDLE CONFIRM] Status resposta do Ngrok/ESP:", response.status)
         const returnData = await response.json()
         console.log("[HANDLE CONFIRM] Dados retornados pelo ESP:", returnData)
     } catch (error) {
@@ -372,7 +400,7 @@ async function handleConfirm(baseUrl, openT) {
     }
 }
 
-const removeConfirm = async (ip, IPComplex, mac) => {
+const removeConfirm = async (mac) => {
     try {
         const { data, error } = await supabase
             .from("IPs")
@@ -387,8 +415,9 @@ const removeConfirm = async (ip, IPComplex, mac) => {
         }
 
         if (data && data.length > 0) {
-            const value = await takeTimeout(mac)
-            await handleConfirm(IPComplex, value)
+            const openTime = await takeTimeout(mac)
+            
+            await handleConfirm(openTime)
         } else {
             console.log("[REMOVE CONFIRM] Nenhuma linha atualizada (confirm=true não encontrado).")
         }
