@@ -190,7 +190,7 @@ app.post("/push", async (req, rep) => {
 
             if (error) throw error
 
-            const dataUs = data?.userequips[0]?.equipid
+            const dataUs = data?.userequips?.equipid
 
             if (dataUs) {
                 dados.equipe = dataUs
