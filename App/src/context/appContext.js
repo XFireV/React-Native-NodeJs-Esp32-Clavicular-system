@@ -123,54 +123,218 @@ export function AppProvider({ children }) {
         setAlreadyRegistred('')
     }
 
-const handleConfirmar = async (espMudou, personInviteCustom = null) => {
-    let inviteFinal;
-    if (inviteRascunho !== null && inviteRascunho !== '') {
-        inviteFinal = inviteRascunho;
-    } else if (inviteRascunho === null && personInviteCustom !== null) {
-        inviteFinal = personInviteCustom;
-    } else {
-        inviteFinal = equipConfig?.invite;
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session) configurarUsuarioLogado(session.user);
+        });
+
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' && session) {
+                configurarUsuarioLogado(session.user);
+            } else if (event === 'SIGNED_OUT') {
+                limparDadosSessao();
+            }
+        });
+
+        return () => {
+            authListener.subscription.unsubscribe();
+        };
+    }, []);
+
+    const configurarUsuarioLogado = async (userAuth) => {
+        try {
+            const { data, error } = await supabase
+                .from('usuarios')
+                .select('id, user, email, IPs(ip)')
+                .eq('email', userAuth.email)
+                .single();
+
+            if (data) {
+                setUserId(data.id);
+                setUserEmail(data.email);
+                setPessoalIp(data.IPs?.ip || null);
+                setLogged(true);
+            }
+        } catch (error) {
+            console.error("Erro ao configurar perfil após login:", error);
+        }
+    };
+
+    const limparDadosSessao = () => {
+        setLogged(false);
+        setUserId('');
+        setUserEmail('');
+        router.replace('/login');
+    };
+
+    const login = async () => {
+        setAuthForm('login')
+        const { usuarioL, senhaL } = loginCredentials
+        const justUser = usuarioL.trim()
+        const justPass = senhaL.trim()
+
+        if (!justUser || !justPass) {
+            setloginErro(true)
+            return
+        }
+
+        try {
+            const { data, error: fetchError } = await supabase
+                .from('usuarios')
+                .select('email')
+                .eq('user', justUser)
+                .single()
+
+            if (fetchError || !data) {
+                console.log("Usuário não encontrado.")
+                setloginErro(true)
+                return
+            }
+
+            const { error: authError } = await supabase.auth.signInWithPassword({
+                email: data.email,
+                password: justPass
+            })
+
+            if (authError) {
+                console.log("Erro de senha:", authError.message)
+                setloginErro(true)
+                return
+            }
+
+            setloginErro(false)
+
+        } catch (err) {
+            console.error("Erro fatal no login:", err)
+            setloginErro(true)
+        }
     }
 
-    const nomeFinal = nomeRascunho.trim() === '' ? equipeName : nomeRascunho;
-    const ipFinal = ipRascunho.trim() === '' ? espIp.replace("http://", "") : ipRascunho;
-    const serverFinal = serverRascunho === 1 ? true : false;
-    
-    const entradaFinal = equipTypeRascunho !== null ? equipTypeRascunho : equipConfig?.enter;
-    const historicoFinal = historicoRascunho !== null ? historicoRascunho : equipConfig?.historico;
-    const ativacaoFinal = ativacaoRascunho !== null ? ativacaoRascunho : equipConfig?.ativation;
-    const tempoFinal = tempoRascunho !== null ? tempoRascunho : equipConfig?.opentime;
+    const signin = async () => {
+        setAuthForm('signin')
+        const { usuarioS, emailS, senhaS } = signCredentials
+        const justUser = usuarioS.trim()
+        const justEmail = emailS.trim()
 
-    const nadaMudou = 
-        nomeFinal === equipeName && 
-        ipFinal === espIp.replace("http://", "") && 
-        inviteFinal === equipConfig?.invite && 
-        serverFinal === equipConfig?.server &&
-        entradaFinal === equipConfig?.enter &&
-        historicoFinal === equipConfig?.historico &&
-        ativacaoFinal === equipConfig?.ativation &&
-        tempoFinal === equipConfig?.opentime;
+        const checkError = analisarErros(justUser, senhaS, justEmail)
+        
+        if (!checkError) return // Para se tiver erro visual
 
-    if (nadaMudou) {
-        Alert.alert("Aviso", "Nenhuma alteração foi feita.");
-        return;
+        try {
+            const resposta = await fetch('https://node-clavicular-system.onrender.com', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: justEmail,
+                    password: senhaS,
+                    username: justUser
+                })
+            })
+
+            const respostaJson = await resposta.json()
+
+            if (!resposta.ok) {
+                if (respostaJson.error?.includes("already registered")) {
+                    setAlreadyRegistred(true)
+                } else {
+                    Alert.alert("Erro ao criar conta", respostaJson.error)
+                }
+                return
+            }
+
+            Alert.alert('Sucesso', 'Conta criada com sucesso!')
+            router.replace('/login')
+            
+        } catch (err) {
+            Alert.alert("Erro", "Falha de comunicação com o servidor.")
+        }
     }
 
-    const { hasError, mac } = await checkEquipNetwork(nomeFinal, ipFinal, espMudou);
-
-    if (hasError) {
-        Alert.alert("Erro de Conexão", "Não foi possível validar o ESP32 na rede.");
-        return;
+    const logout = async () => {
+        try {
+            if (!loginSave) {
+                errorClean()
+            }
+            // Apenas isso! O onAuthStateChange cuida do resto
+            await supabase.auth.signOut()
+        } catch (e) {
+            console.error('erro ao deslogar', e)
+        }
     }
 
-    const sucesso = await saveSettings(
-        nomeFinal, ipFinal, inviteFinal, serverFinal, mac,
-        entradaFinal, historicoFinal, ativacaoFinal, tempoFinal
-    );
-    
-    if (sucesso) router.back();
-};
+    const redefinirPass = async(valor) => {
+        try {
+            // Atualiza a senha no Supabase Auth
+            const { error: authError } = await supabase.auth.updateUser({ password: valor })
+            if (authError) throw authError
+
+            // Atualiza na sua tabela (mantendo sincronia com o banco antigo)
+            const { error } = await supabase
+                .from('usuarios')
+                .update({senha: valor})
+                .eq('user', usuarioL)
+
+            if (error) throw error
+
+            setSenhaA(false)
+            logout()
+            Alert.alert('Senha alterada com sucesso. Faça login novamente.')
+            return true
+        }
+        catch(erro) {
+            Alert.alert(erro.message)
+            return false 
+        }
+    }
+
+    const handleConfirmar = async (espMudou, personInviteCustom = null) => {
+        let inviteFinal;
+        if (inviteRascunho !== null && inviteRascunho !== '') {
+            inviteFinal = inviteRascunho;
+        } else if (inviteRascunho === null && personInviteCustom !== null) {
+            inviteFinal = personInviteCustom;
+        } else {
+            inviteFinal = equipConfig?.invite;
+        }
+
+        const nomeFinal = nomeRascunho.trim() === '' ? equipeName : nomeRascunho;
+        const ipFinal = ipRascunho.trim() === '' ? espIp.replace("http://", "") : ipRascunho;
+        const serverFinal = serverRascunho === 1 ? true : false;
+        
+        const entradaFinal = equipTypeRascunho !== null ? equipTypeRascunho : equipConfig?.enter;
+        const historicoFinal = historicoRascunho !== null ? historicoRascunho : equipConfig?.historico;
+        const ativacaoFinal = ativacaoRascunho !== null ? ativacaoRascunho : equipConfig?.ativation;
+        const tempoFinal = tempoRascunho !== null ? tempoRascunho : equipConfig?.opentime;
+
+        const nadaMudou = 
+            nomeFinal === equipeName && 
+            ipFinal === espIp.replace("http://", "") && 
+            inviteFinal === equipConfig?.invite && 
+            serverFinal === equipConfig?.server &&
+            entradaFinal === equipConfig?.enter &&
+            historicoFinal === equipConfig?.historico &&
+            ativacaoFinal === equipConfig?.ativation &&
+            tempoFinal === equipConfig?.opentime;
+
+        if (nadaMudou) {
+            Alert.alert("Aviso", "Nenhuma alteração foi feita.");
+            return;
+        }
+
+        const { hasError, mac } = await checkEquipNetwork(nomeFinal, ipFinal, espMudou);
+
+        if (hasError) {
+            Alert.alert("Erro de Conexão", "Não foi possível validar o ESP32 na rede.");
+            return;
+        }
+
+        const sucesso = await saveSettings(
+            nomeFinal, ipFinal, inviteFinal, serverFinal, mac,
+            entradaFinal, historicoFinal, ativacaoFinal, tempoFinal
+        );
+        
+        if (sucesso) router.back();
+    };
 
     const activeLoginSave = async() => {
         const { senhaL, usuarioL} = loginCredentials
@@ -374,179 +538,6 @@ const handleConfirmar = async (espMudou, personInviteCustom = null) => {
             console.error("Erro ao salvar:", e.message);
         }
     };
-
-    const redefinirPass = async(valor) => {
-        try {const { error} = await supabase
-            .from('usuarios')
-            .update({senha: valor})
-            .select('senha')
-            .eq('user', usuarioL)
-
-            if (error) {
-                Alert.alert(error.message);
-                return false
-            }
-            setSenhaA(false)
-            logout()
-            Alert.alert('Senha alterada')
-            return true
-    }
-    catch(erro) {
-        Alert.alert(erro)
-        return false 
-    }
-}
-
-    const logout = async () => {
-    try {
-    if (!loginSave) {
-        errorClean()
-    }
-    setLogged(false)
-    router.replace('/login')
-    }
-    catch (e) {
-      console.error('erro ao ', e)
-    }
-  }
-
-    const credentialsExist = async(Email, User) => {
-        try {
-            const {data: existEmail, error: erro} = await supabase
-                .from('usuarios')
-                .select('email')
-                .eq('email', Email)
-
-                if (erro) throw(erro)
-
-                if (existEmail && existEmail.length > 0) {
-                    setAlreadyRegistred(true)
-                    return false
-                } else {console.log('Email não setado')}
-
-            const {data: existUser, error: erroU} = await supabase
-                .from('usuarios')
-                .select('user')
-                .eq('user', User)
-
-                if (erroU) throw(erroU)
-
-                if (existUser && existUser.length > 0) {
-                    return false
-                } else {return true}
-
-        } catch(e) {
-            Alert.alert('Erro ao tentar conexão, tente novamente')
-            return false
-        }
-    }
-
-    const saveCredentials = async (Email, User, Senha) => {
-        const { error } = await supabase
-            .from('usuarios')
-            .insert([{ 
-                email: Email,
-                user: User,
-                senha: Senha 
-            }]);
-        if (error) throw error;
-        console.log("Salvo no Supabase!");
-        return true
-    }
-
-
-    const confirmPass = async (user, senha) => {
-        const justUser = user.trim();
-        const justPass = senha.trim();
-
-        try {
-            const { data, error } = await supabase
-              .from('usuarios')
-              .select(`
-                user, senha, id, email, mac,
-                IPs ( ip )
-              `)
-              .eq('user', justUser)
-              .single(); 
-
-            if (error) {
-              console.log("Erro do Supabase na busca:", error.message, error.details);
-              return false;
-            }
-
-            if (!data) {
-              console.log("Usuário não encontrado no banco.");
-              return false;
-            }
-
-            if (justPass === data.senha) {
-              setUserId(data.id);
-              setUserEmail(data.email);
-              
-              const ipEsp = data.IPs?.ip || null;
-              setPessoalIp(ipEsp);
-              
-              console.log("Login bem-sucedido!");
-              return true;
-            } else {
-              console.log("A senha digitada não bate com a do banco.");
-              return false;
-            }
-        } catch (err) {
-            console.error("Erro fatal no confirmPass:", err);
-            return false;
-        }
-    };
-
-    const login = async () => {
-        setAuthForm('login')
-        const {usuarioL, senhaL} = loginCredentials
-        const checkCred = await confirmPass(usuarioL, senhaL);
-        if (checkCred) {
-            setLogged(true);
-            setloginErro(false);
-            router.push('/home');
-        } else {
-            setloginErro(true);
-        }
-}
-
-    const signin = async () => {
-        setAuthForm('signin')
-        const {usuarioS, emailS, senhaS} = signCredentials
-        const checkAcc = await credentialsExist(emailS, usuarioS)
-        if (checkAcc) {
-            const checkError = analisarErros(usuarioS, senhaS, emailS)
-            if (checkError) {
-                const generatedId = Math.floor(100000 + Math.random() * 900000).toString();
-                setId(generatedId)
-            try {
-                const emailData = {
-                service_id: serviceId,
-                template_id: templateId,
-                user_id: publicKey,
-                template_params: {
-                email: emailS,
-                ID: generatedId,
-                name: usuarioS
-                }
-            }
-            const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-            method: 'POST',
-            headers: {
-            'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(emailData)
-        });
-        if (response.ok) {
-            Alert.alert('Sucesso', `E-mail enviado!`);
-            router.replace('/(auth)/authid');
-        } else {
-            throw new Error('Falha na resposta da API');
-        }
-    } catch (err) {
-        Alert.alert("Erro", "Não foi possível enviar o e-mail.")
-    }}}}
 
     const alreadyInEquip = async(equipid) => {
         const already = myEquip.some(item => item.id === equipid)
@@ -1248,7 +1239,7 @@ const carregarPedidos = async () => {
     return (
         <appContext.Provider value={{ 
             throwEquip, historico, addHistory, logged, setLogged, 
-            setId, id, saveCredentials,
+            setId, id, 
             setConfirmCred, alreadyRegistred,
             firstLog, setFirstLog, espIp, setEspIp,
             redefinirPass, senhaA, setSenhaA, confirmCred,
