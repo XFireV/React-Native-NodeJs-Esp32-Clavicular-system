@@ -192,6 +192,10 @@ app.post("/push", async (req, rep) => {
 
             const dataUs = data?.userequips[0]?.equipid
 
+            console.log(dataUs)
+            console.log(from)
+            console.log(user)
+            
             if (dataUs) {
                 dados.equipe = dataUs
                 dados.user = user
