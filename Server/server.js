@@ -189,7 +189,10 @@ app.post("/push", async (req, rep) => {
 
             if (error) throw error
 
-            const dataUs = data?.userequips[0]?.equipid
+            let dataUs = null;
+            if (data?.userequips) {
+                dataUs = Array.isArray(data.userequips) ? data.userequips[0]?.equipid : data.userequips.equipid;
+            }
 
             console.log(dataUs)
             console.log(from)
