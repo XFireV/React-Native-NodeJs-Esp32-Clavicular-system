@@ -1,15 +1,8 @@
 import Fastify from 'fastify'
 import { supabase } from './Supabase/supabase.js'
-import cors from '@fastify/cors'
 
 const app = Fastify({ logger: true })
 
-await app.register(cors, {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-})
-
-// URL do tunnel do Ngrok apontado para a porta 80 do ESP32 na sua rede local
 const NGROK_ESP32_URL = "https://blog-disbelief-region.ngrok-free.dev"
 
 const metadados = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"]
