@@ -39,11 +39,12 @@ const pushAdmin = async (mac) => {
 app.post("/home", async (req, rep) => {
     try {
         const dataLdr = req.body?.LDRState
+        const valuesLdr = req.body?.LDRValue
         const mac = req.body?.mac
         const ip = req.body?.ip || req.ip
 
         if (dataLdr && mac) {
-            await saveData(dataLdr, mac, ip)
+            await saveData(dataLdr, valuesLdr, mac, ip)
         } else {
             console.log("[HOME] Payload incompleto recebido:", req.body)
         }
@@ -333,7 +334,7 @@ const pushAtive = async (mac) => {
 }
 
 // Atualiza leituras LDR e IP
-const saveData = async (ldr, mac, ip) => {
+const saveData = async (ldr, values, mac, ip) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
         console.log("[SAVE DATA] Dados ausentes/inválidos")
         return
@@ -352,7 +353,10 @@ const saveData = async (ldr, mac, ip) => {
             .select()
 
         if (error) console.error("Erro no saveData:", error.message)
-        else console.log("[SAVE DATA] Atualizado:", data)
+        else {
+            console.log("[SAVE DATA] Atualizado:", data) 
+            console.log("[LDR VALUES] Valores brutos:", values)
+        }
     } catch (error) {
         console.error("Exceção saveData:", error)
     }
