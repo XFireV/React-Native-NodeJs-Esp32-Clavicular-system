@@ -13,21 +13,14 @@
 
 #define s0 18
 #define s1 19
-#define s2 5
-#define s3 23
+#define s2 21
+#define s3 22
 #define mux 34
 
-//configs de rede
+// configs de rede
 const char* inUseUrl = serverUrl;
-const char* ssid = "TATI VIVO-2.4Ghz";
-const char* password = "Lajeado10.";
-
-IPAddress ipLocal(192, 168, 15, 124);
-IPAddress gateway(192, 168, 15, 1);
-IPAddress subnetMask(255, 255, 255, 0);
-
-IPAddress dns1(8, 8, 8, 8);
-IPAddress dns2(1, 1, 1, 1);
+const char* ssid = "IFSUL-Atendimento";
+const char* password = "esmeralda2026";
 
 int ldrs[10][4] = {
   { 0, 0, 0, 0 },
@@ -45,15 +38,15 @@ int ldrs[10][4] = {
 const byte LINHAS = 4;   // Linhas do teclado
 const byte COLUNAS = 4;  // Colunas do teclado
 
-const char TECLAS_MATRIZ[LINHAS][COLUNAS] = {  // Matriz de caracteres (mapeamento do teclado)
+const char TECLAS_MATRIZ[LINHAS][COLUNAS] = {
   { '1', '2', '3', 'A' },
   { '4', '5', '6', 'B' },
   { '7', '8', '9', 'C' },
   { '*', '0', '#', 'D' }
 };
 
-byte PINOS_LINHAS[LINHAS] = { 22, 16, 14, 27 };
-byte PINOS_COLUNAS[COLUNAS] = { 26, 25, 33, 32 };
+byte PINOS_LINHAS[LINHAS] = { 32, 33, 25, 26 };
+byte PINOS_COLUNAS[COLUNAS] = { 27, 14, 12, 13 };
 
 Keypad keypad = Keypad(makeKeymap(TECLAS_MATRIZ), PINOS_LINHAS, PINOS_COLUNAS, LINHAS, COLUNAS);
 
@@ -91,12 +84,14 @@ const int inativity = 40000;
 int timeout = 0;
 unsigned long startTimeout = millis();
 unsigned long lastPress = millis();
+unsigned long timeUpd = 0;
 
 String senhaUser = "";
 String sketchAdminPass = "";
 bool acess = false;
 
 bool systemOn = false;
+bool listaTrue[10] = { false };
 
 bool activity;
 
@@ -119,8 +114,11 @@ private:
     if (passResult == 0 || passResult == 1) {
       acess = true;
       editing = false;
+      atualScreen = ATIVE;
+      updateLcd();
     } else {
       senhaUser = "";
+      updateLcd();
     }
   }
 
@@ -155,6 +153,13 @@ private:
         if (!error) {
           Serial.print("confirmação: ");
           Serial.println(jsonPayload["confirm"].as<String>());
+
+          timeout = jsonPayload["opentime"];
+          systemOn = true;
+          startTimeout = millis();
+
+          Serial.println(timeout);
+          digitalWrite(15, 1);
         } else {
           Serial.println(responseCode);
           http.end();
@@ -299,7 +304,7 @@ private:
           } else {
             depuratePass();
           }
-        }
+        } else {sketchPass = "";}
         break;
       default:
         if (sketchPass.length() < 8) {
@@ -311,6 +316,7 @@ private:
 
   void navigating(char car) {
     uint8_t indexScreen = (uint8_t)atualScreen;
+    
     if (car == '5' && !editing) {
       if (atualScreen == ATIVE) {
         pushSystem();
@@ -318,12 +324,11 @@ private:
         senhaUser = "";
         editing = true;
       }
+      updateLcd();
       return;
     }
 
-    const char type = (car == '4') ? 'L' : (car == '6') ? 'R'
-                                                        : 'N';
-
+    const char type = (car == '4') ? 'L' : (car == '6') ? 'R' : 'N';
     if (type == 'N') return;
 
     uint8_t newIndex;
@@ -334,6 +339,7 @@ private:
     }
 
     atualScreen = (screens)newIndex;
+    updateLcd(); 
   }
 
 public:
@@ -344,9 +350,19 @@ public:
   }
 
   void startLcd() {
+    Wire.begin(23, 5);
     lcd.init();
+    lcd.begin(16,2);
     lcd.backlight();
     lcd.clear();
+  }
+
+  void liberarViaFacial() {
+    editing = false;
+    acess = true;
+    senhaUser = "";
+    atualScreen = ATIVE;
+    updateLcd();
   }
 
   void resetToHome() {
@@ -355,6 +371,16 @@ public:
     acess = false;
     senhaUser = "";
     updateLcd();
+  }
+
+  void sysOn() {
+    long tempoRestante = timeout - (millis() - startTimeout);
+    if (tempoRestante < 0) tempoRestante = 0;
+
+    lcd.setCursor(0, 0);
+    lcd.print(clearSystem(16, "Sistema Ativo"));
+    lcd.setCursor(0, 1);
+    lcd.print(clearSystem(16, "Resta: " + String(tempoRestante / 1000) + "s"));
   }
 
   void starting(char caract) {
@@ -367,56 +393,58 @@ public:
 
     bool typePass = (atualScreen == SWITCHADMPASS);
     digits(caract, typePass);
+    updateLcd(); 
   }
 
   void updateLcd(bool list[] = NULL) {
     lcd.clear();
 
-    switch (atualScreen) {
-      case HOME:
-        lcd.setCursor(0, 0);
-        lcd.print(clearSystem(16, "Ativar Sistema"));
-        lcd.setCursor(0, 1);
-        lcd.print(clearSystem(16, "Senha: " + senhaUser));
-        break;
+    if(!systemOn){
+      switch (atualScreen) {
+        case HOME:
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "Ativar Sistema"));
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, "Senha: " + senhaUser));
+          break;
 
-      case IP:
-        lcd.setCursor(0, 0);
-        lcd.print(clearSystem(16, "IP do sistema:"));
-        lcd.setCursor(0, 1);
-        lcd.print(clearSystem(16, WiFi.localIP().toString()));
-        break;
+        case IP:
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "IP do sistema:"));
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, WiFi.localIP().toString()));
+          break;
 
-      case SWITCHADMPASS:
-        lcd.setCursor(0, 0);
-        lcd.print(clearSystem(16, "Nova Senha ADM:"));
-        lcd.setCursor(0, 1);
-        lcd.print(clearSystem(16, senhaUser));
-        break;
+        case SWITCHADMPASS:
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "Nova Senha ADM:"));
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, sketchAdminPass));
+          break;
 
-      case ATIVE:
-        lcd.setCursor(0, 0);
-        lcd.print(clearSystem(16, "System boot"));
-        lcd.setCursor(0, 1);
-        lcd.print(clearSystem(16, "press 5"));
-        break;
+        case ATIVE:
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "System boot"));
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, "press 5"));
+          break;
 
-      case STATS:
-        String showLdr = "";
-        if (list != NULL) {
+        case STATS:
+          String showLdr = "";
           for (int i = 0; i < 10; i++) {
-            showLdr += list[i] ? "1" : "0";
+              showLdr += listaTrue[i] ? "1 " : "0 ";
           }
-        }
-
-        lcd.setCursor(0, 0);
-        lcd.print(clearSystem(16, "Status LDRs:"));
-        lcd.setCursor(0, 1);
-        lcd.print(clearSystem(16, showLdr));
-        break;
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "Status LDRs:"));
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, showLdr));
+          break;
+      }
     }
   }
 };
+
+displayManag display(0x27, 16, 2);
 
 void enviarPost(bool listaT[], int listaV[]) {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -444,7 +472,7 @@ void enviarPost(bool listaT[], int listaV[]) {
 
   HTTPClient http;
   http.begin(client, targetUrl);
-  http.setTimeout(10000);
+  http.setTimeout(3000);
   http.addHeader("Content-Type", "application/json");
 
   int httpResponseCode = http.POST(JsonPayload);
@@ -500,18 +528,18 @@ void handleLed() {
 
     if (!error) {
       bool ative = doc["ative"] | true;
-      unsigned long tempoAcionamento = doc["time"] | 5000;
+      unsigned long tempoAcionamento = doc["time"] | 10000;
 
       if (ative) {
         digitalWrite(ledPin, HIGH);
-        meuServo.write(180);
 
         Serial.print("LED ligado por (ms): ");
         Serial.println(tempoAcionamento);
 
         startTimeout = millis();
         timeout = tempoAcionamento;
-        systemOn = ative;
+        systemOn = true;
+        digitalWrite(15, 1);
       }
     } else {
       Serial.println("Erro ao parsear JSON do /led");
@@ -528,22 +556,117 @@ void handleLed() {
   server.send(200, "application/json", resposta);
 }
 
-void offset() {
-  digitalWrite(ledPin, 0);
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "text/plain", "LED desligado");
-}
-
 void parearNovo() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/plain", WiFi.macAddress());
+}
+
+void putFace() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Payload ausente\"}");
+    return;
+  }
+
+  String payload = server.arg("plain");
+  Serial.print("Payload recebido da Câmera: ");
+  Serial.println(payload);
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (error) {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"JSON invalido\"}");
+    return;
+  }
+
+  String nome = doc["user"];
+  bool confirm = doc["confirm"];
+
+  if (confirm && nome.length() > 0) {
+    Serial.printf("[FACIAL] Validando usuario '%s' no servidor...\n", nome.c_str());
+
+    bool aprovadoPeloServidor = pushSystemFacial(nome);
+
+    if (aprovadoPeloServidor) {
+      digitalWrite(ledPin, HIGH);
+      digitalWrite(15, HIGH);
+      meuServo.write(180);
+
+      startTimeout = millis();
+      systemOn = true;
+
+      display.liberarViaFacial();
+
+      Serial.println("acesso aprovado");
+
+      JsonDocument docResp;
+      docResp["status"] = "ok";
+      docResp["granted"] = true;
+      String resposta;
+      serializeJson(docResp, resposta);
+
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(200, "application/json", resposta);
+      return;
+    }
+  }
+
+  Serial.println("Acesso negado");
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(401, "application/json", "{\"status\":\"denied\",\"granted\":false}");
+  Serial.println("confirm: " + confirm);
+  Serial.println("nome: " + nome);
+
+}
+
+bool pushSystemFacial(String nome) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  WiFiClientSecure client;
+  client.setCACert(root_ca);
+
+  JsonDocument doc;
+  JsonDocument jsonPayload;
+  String payload;
+
+  doc["user"] = nome;
+  doc["mac"] = WiFi.macAddress();
+  doc["from"] = "Facial";
+
+  serializeJson(doc, payload);
+
+  HTTPClient http;
+  http.begin(client, String(inUseUrl) + "push");
+  http.setTimeout(15000);
+  http.addHeader("Content-Type", "application/json");
+
+  int responseCode = http.POST(payload);
+  bool autorizado = false;
+
+  if (responseCode == 200) {
+    String received = http.getString();
+    DeserializationError error = deserializeJson(jsonPayload, received);
+
+    if (!error && jsonPayload.containsKey("confirm")) {
+      autorizado = true;
+      if (jsonPayload.containsKey("opentime")) {
+        timeout = jsonPayload["opentime"].as<int>();
+      }
+    }
+  } else {
+    Serial.printf("[FACIAL] Servidor recusou a validação. Código HTTP: %d\n", responseCode);
+  }
+
+  http.end();
+  client.stop();
+  return autorizado;
 }
 
 void registrarIPInicial() {
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClientSecure client;
     client.setCACert(root_ca);
-    //client.setInsecure();
+
     JsonDocument doc;
     doc["mac"] = WiFi.macAddress();
     doc["ip"] = WiFi.localIP().toString();
@@ -571,22 +694,20 @@ void registrarIPInicial() {
   }
 }
 
-displayManag display(0x27, 16, 2);
-
 void setup() {
-  display.startLcd();
-  if (!WiFi.config(ipLocal, gateway, subnetMask, dns1, dns2)) { Serial.println("Erro ao configurar IP estático"); }
-
   Serial.begin(115200);
   delay(2000);
 
+  display.startLcd();
+  display.updateLcd();
+  
   meuServo.setPeriodHertz(50);
-  meuServo.attach(13, 500, 2400);
+  meuServo.attach(4, 500, 2400);
 
-  meuServo.write(180);
   delay(2000);
   meuServo.write(0);
   pinMode(2, OUTPUT);
+  pinMode(15, OUTPUT);
 
   pinMode(s0, OUTPUT);
   pinMode(s1, OUTPUT);
@@ -607,7 +728,7 @@ void setup() {
   registrarIPInicial();
 
   server.on("/led", HTTP_POST, handleLed);
-  server.on("/off", offset);
+  server.on("/face", HTTP_POST, putFace);
   server.on("/parear", parearNovo);
   server.begin();
 }
@@ -617,28 +738,36 @@ void loop() {
   server.handleClient();
 
   char caract = keypad.getKey();
-  display.starting(caract);
-
-  if (systemOn && millis() - startTimeout >= timeout) {
-    systemOn = false;
-    meuServo.write(0);
-    Serial.println("[SERVO DESLIGADO]");
-  }
-
+  
   if (caract != NO_KEY) {
-    display.updateLcd();
+    display.starting(caract); 
     lastPress = millis();
   }
 
-  if (millis() - lastPress >= inativity && atualScreen != HOME) display.resetToHome();
+  if (systemOn) {
+    meuServo.write(180);
+    if (millis() - timeUpd >= 200) {
+      timeUpd = millis();
+      display.sysOn();
+    }
+    if (millis() - startTimeout >= timeout) {
+      systemOn = false;
+      meuServo.write(0);
+      digitalWrite(15, 0);
+      Serial.println("[SERVO DESLIGADO]");
+      display.updateLcd();
+    }
+  } 
 
-  if (millis() - tempoUltimaLeitura >= intervaloLeitura) {
+  if (millis() - lastPress >= inativity && atualScreen != HOME) {
+    display.resetToHome();
+  }
+
+  if (millis() - tempoUltimaLeitura >= intervaloLeitura && !systemOn) {
     tempoUltimaLeitura = millis();
 
-    bool listaTrue[10] = { false };
     int listaValores[10] = { 0 };
     int ldrBits[4] = { 0, 0, 0, 0 };
-    int atualValue = 0;
 
     for (int i = 0; i < 10; i++) {
       for (int y = 0; y < 4; y++) {
@@ -650,14 +779,9 @@ void loop() {
       int leitura = analogRead(mux);
       listaValores[i] = leitura;
       listaTrue[i] = (leitura > 1200);
-      atualValue++;
-    }
-
-    for (int i = 0; i < 10; i++) {
-      Serial.println(" -Sensor " + String(i) + ": " + String(listaValores[i]));
     }
 
     enviarPost(listaTrue, listaValores);
-    display.updateLcd(listaTrue);
+    display.updateLcd(); 
   }
 }
