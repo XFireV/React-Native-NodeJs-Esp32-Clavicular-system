@@ -2,6 +2,7 @@ import cv2
 import os
 import numpy as np
 import face_recognition
+import requests
 
 # ==========================================
 # CONFIGURAÇÕES
@@ -9,13 +10,17 @@ import face_recognition
 
 DATASET_DIR = "faces"
 USERS_FILE = "users.txt"
-TOTAL_FOTOS = 10 # Com Deep Learning, 10 fotos são mais que suficientes!
+TOTAL_FOTOS = 10 
 
-ESP32_URL = "https://blog-disbelief-region.ngrok-free.dev"
+# URL PÚBLICA DO NGROK (Apontando para a rota do ESP32)
+ESP32_URL = "https://blog-disbelief-region.ngrok-free.dev/face"
+
+# MAC ADDRESS do ESP32 (Necessário para a rota /push do seu Node.js atualizar o 'ativo')
+ESP32_MAC = "A4:CF:12:XX:XX:XX"  # <--- Coloque o MAC real do seu ESP32 aqui
 
 os.makedirs(DATASET_DIR, exist_ok=True)
 
-# Usamos o Haar Cascade apenas para detectar ONDE está o rosto na tela durante o cadastro
+# Haar Cascade para localizar o rosto na tela durante o cadastro
 cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
@@ -29,7 +34,7 @@ def carregar_usuarios():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r", encoding="utf-8") as f:
             for linha in f:
-                if (linha.strip()):
+                if linha.strip():
                     uid, nome = linha.strip().split(";")
                     usuarios[int(uid)] = nome
     return usuarios
@@ -73,12 +78,9 @@ def cadastrar():
         faces = cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
 
         for (x, y, w, h) in faces:
-            # No cadastro, salvamos a imagem colorida inteira ou recortada.
-            # O face_recognition trabalha melhor com o frame original focado.
             contador += 1
             arquivo = os.path.join(pasta, f"{contador}.jpg")
 
-            # Vamos salvar a foto da face com uma pequena margem
             rosto_colorido = frame[max(0, y-20):min(frame.shape[0], y+h+20),
                                    max(0, x-20):min(frame.shape[1], x+w+20)]
 
@@ -90,7 +92,7 @@ def cadastrar():
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
         cv2.imshow("Cadastro de Face", frame)
-        cv2.waitKey(200) # Pausa menor para registrar rápido
+        cv2.waitKey(200)
 
     cap.release()
     cv2.destroyAllWindows()
@@ -98,102 +100,60 @@ def cadastrar():
     salvar_usuario(novo_id, nome)
     print("✅ Cadastro concluído com sucesso!")
 
-#==============================================
-#GERACAO DE ENCONDINGS
-#===========================================
+
+# ==========================================
+# GERAÇÃO DE ENCODINGS
+# ==========================================
 
 def gerar_encodings():
-
     print("\n[PROCESSANDO] Gerando banco de encodings...")
-
     encodings_por_usuario = {}
 
     for uid in os.listdir(DATASET_DIR):
-
         pasta = os.path.join(DATASET_DIR, uid)
-
         if not os.path.isdir(pasta):
             continue
 
         lista = []
-
         for arquivo in os.listdir(pasta):
-
             caminho = os.path.join(pasta, arquivo)
-
             try:
-
                 imagem = face_recognition.load_image_file(caminho)
-
                 encodings = face_recognition.face_encodings(imagem)
 
                 if len(encodings) > 0:
-
                     lista.append(encodings[0])
-
-                    print(
-                        f"[OK] Usuário {uid} - {arquivo}"
-                    )
-
+                    print(f"[OK] Usuário {uid} - {arquivo}")
                 else:
-
-                    print(
-                        f"[AVISO] Nenhum rosto encontrado em {arquivo}"
-                    )
-
+                    print(f"[AVISO] Nenhum rosto encontrado em {arquivo}")
             except Exception as e:
-
-                print(
-                    f"[ERRO] {arquivo}: {e}"
-                )
+                print(f"[ERRO] {arquivo}: {e}")
 
         if len(lista) > 0:
-
             encodings_por_usuario[int(uid)] = lista
 
     if len(encodings_por_usuario) == 0:
-
         print("\n[ERRO] Nenhuma assinatura facial encontrada.")
-
         return False
 
     caminho_encodings = "encodings.pkl"
 
     try:
-
         import pickle
-
         with open(caminho_encodings, "wb") as arquivo:
-
-            pickle.dump(
-                encodings_por_usuario,
-                arquivo
-            )
-
-        print(
-            f"\n[OK] Banco de encodings salvo em {caminho_encodings}"
-        )
-
+            pickle.dump(encodings_por_usuario, arquivo)
+        print(f"\n[OK] Banco de encodings salvo em {caminho_encodings}")
         return True
-
     except Exception as e:
-
-        print(
-            f"\n[ERRO] Não foi possível salvar os encodings: {e}"
-        )
-
+        print(f"\n[ERRO] Não foi possível salvar os encodings: {e}")
         return False
 
 
-
-
 # ==========================================
-# RECONHECIMENTO (AQUI A MÁGICA ACONTECE)
+# RECONHECIMENTO FACIAL
 # ==========================================
-
 
 def reconhecer():
-
     usuarios = carregar_usuarios()
 
     if not usuarios:
@@ -201,243 +161,142 @@ def reconhecer():
         return
 
     print("\n[PROCESSANDO] Carregando banco de encodings...")
-
     import pickle
-
     caminho_encodings = "encodings.pkl"
 
     if not os.path.exists(caminho_encodings):
-
         print("[ERRO] Banco de encodings não encontrado.")
         print("Execute a geração dos encodings primeiro.")
-
         return
 
     try:
-
         with open(caminho_encodings, "rb") as arquivo:
-
             encodings_por_usuario = pickle.load(arquivo)
-
     except Exception as e:
-
-        print(
-            f"[ERRO] Não foi possível carregar os encodings: {e}"
-        )
-
+        print(f"[ERRO] Não foi possível carregar os encodings: {e}")
         return
 
     if len(encodings_por_usuario) == 0:
-
         print("Nenhuma assinatura facial encontrada.")
-
         return
 
     print("[OK] Banco de encodings carregado.")
-
-    # ======================================
 
     LIMIAR = 0.45
     NUM_MELHORES = 5
 
     cap = cv2.VideoCapture(0)
-
-    cap.set(
-        cv2.CAP_PROP_FRAME_WIDTH,
-        640
-    )
-
-    cap.set(
-        cv2.CAP_PROP_FRAME_HEIGHT,
-        480
-    )
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     print("\n[INFO] Câmera pronta.")
     print("[ESPAÇO] Reconhecer")
     print("[ESC] Sair")
 
     while True:
-
         ret, frame = cap.read()
-
         if not ret:
             break
 
         h, w, _ = frame.shape
-
         cv2.rectangle(
             frame,
             (int(w/4), int(h/4)),
             (int(3*w/4), int(3*h/4)),
-            (255,0,0),
+            (255, 0, 0),
             1
         )
 
-        cv2.imshow(
-            "Reconhecimento Facial",
-            frame
-        )
-
+        cv2.imshow("Reconhecimento Facial", frame)
         tecla = cv2.waitKey(1) & 0xFF
-
-        # ----------------------------------
 
         if tecla == 27:
             break
 
-        # ----------------------------------
-
         if tecla == 32:
-
-            rgb = cv2.cvtColor(
-                frame,
-                cv2.COLOR_BGR2RGB
-            )
-
-            locais = face_recognition.face_locations(
-                rgb
-            )
-
-            encodings_camera = face_recognition.face_encodings(
-                rgb,
-                locais
-            )
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            locais = face_recognition.face_locations(rgb)
+            encodings_camera = face_recognition.face_encodings(rgb, locais)
 
             if len(encodings_camera) == 0:
-
                 print("Nenhum rosto encontrado.")
-
                 continue
 
             acesso = False
             nome = "Desconhecido"
-
             melhor_media_global = 999
             melhor_uid = None
             melhor_local = None
 
-            # ==========================================
-            # Analisa cada rosto encontrado na câmera
-            # ==========================================
-
-            for encoding_camera, local in zip(
-                encodings_camera,
-                locais
-            ):
-
+            for encoding_camera, local in zip(encodings_camera, locais):
                 for uid, lista_encodings in encodings_por_usuario.items():
+                    distancias = face_recognition.face_distance(lista_encodings, encoding_camera)
+                    distancias = np.sort(distancias)
+                    quantidade = min(NUM_MELHORES, len(distancias))
+                    media = np.mean(distancias[:quantidade])
 
-                    distancias = face_recognition.face_distance(
-                        lista_encodings,
-                        encoding_camera
-                    )
-
-                    # Ordena da menor para maior
-
-                    distancias = np.sort(
-                        distancias
-                    )
-
-                    quantidade = min(
-                        NUM_MELHORES,
-                        len(distancias)
-                    )
-
-                    media = np.mean(
-                        distancias[:quantidade]
-                    )
-
-                    print(
-                        f"{usuarios[uid]} -> média = {media:.4f}"
-                    )
+                    print(f"{usuarios[uid]} -> média = {media:.4f}")
 
                     if media < melhor_media_global:
-
                         melhor_media_global = media
                         melhor_uid = uid
                         melhor_local = local
 
-            print(
-                f"\nMelhor média encontrada: "
-                f"{melhor_media_global:.4f}"
-            )
+            print(f"\nMelhor média encontrada: {melhor_media_global:.4f}")
 
             if melhor_media_global < LIMIAR:
-
                 acesso = True
-
                 nome = usuarios[melhor_uid]
-
                 top, right, bottom, left = melhor_local
 
-                cv2.rectangle(
-                    frame,
-                    (left, top),
-                    (right, bottom),
-                    (0,255,0),
-                    3
-                )
-
-                cv2.putText(
-                    frame,
-                    f"{nome}",
-                    (left, top-10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0,255,0),
-                    2
-                )
-
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 3)
+                cv2.putText(frame, f"{nome}", (left, top-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             else:
+                cv2.putText(frame, "DESCONHECIDO", (30, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-                cv2.putText(
-                    frame,
-                    "DESCONHECIDO",
-                    (30,40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0,0,255),
-                    2
-                )
-
-            cv2.imshow(
-                "Reconhecimento Facial",
-                frame
-            )
-
+            cv2.imshow("Reconhecimento Facial", frame)
             cv2.waitKey(1500)
 
             if acesso:
                 print(f"\n✅ ACESSO LIBERADO -> {nome}")
                 print(f"Distância média: {melhor_media_global:.4f}")
 
-                # ENVIO HTTPS PARA O ESP32
+                # ==========================================
+                # REQUISIÇÃO PARA O ESP32 VIA NGROK (HTTPS NATIVO)
+                # ==========================================
                 payload = {
-                    "nome": nome,
+                    "user": nome,
+                    "from": "Facial",
+                    "mac": ESP32_MAC,
                     "confirm": True
                 }
                 
+                headers = {
+                    "Content-Type": "application/json",
+                    "ngrok-skip-browser-warning": "true"  # Bypassa a tela de aviso do Ngrok se necessário
+                }
+                
                 try:
-                    print(f"[INFO] Enviando liberação para {ESP32_URL}...")
-                    # verify=False é necessário pois o ESP32 usa certificado autoassinado localmente
-                    resposta = requests.post(ESP32_URL, json=payload, timeout=5, verify=False)
+                    print(f"[INFO] Notificando o ESP32 em {ESP32_URL}...")
+                    resposta = requests.post(ESP32_URL, json=payload, headers=headers, timeout=5)
                     
                     if resposta.status_code == 200:
-                        print("🌐 [OK] ESP32 ativado com sucesso!")
+                        print("🌐 [OK] ESP32 e Servidor ativados com sucesso!")
                     else:
                         print(f"⚠️ [ERRO] ESP32 retornou status: {resposta.status_code}")
-                
-                except requests.exceptions.RequestException as e:
-                    print(f"❌ [FALHA] Não foi possível comunicar com o ESP32: {e}")
+                        
+                except requests.exceptions.RequestException as err:
+                    print(f"❌ [ERRO] Comunicação com o ESP32 via Ngrok falhou: {err}")
                 # ==========================================
-
+                
             else:
                 print("\n❌ ACESSO NEGADO")
 
             break
 
     cap.release()
-
     cv2.destroyAllWindows()
 
 
