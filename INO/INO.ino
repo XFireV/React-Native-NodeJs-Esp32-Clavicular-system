@@ -89,17 +89,17 @@ unsigned long timeUpd = 0;
 String senhaUser = "";
 String sketchAdminPass = "";
 bool acess = false;
+bool auxSystem = false;
+bool updatedLdr = false;
 
 bool systemOn = false;
 bool listaTrue[10] = { false };
+int listaValores[10] = { 0 };
+int ldrUpdateSys[10] = {0};
 
 bool activity;
 
-enum screens { HOME,
-               ATIVE,
-               STATS,
-               SWITCHADMPASS,
-               IP };
+enum screens { HOME,ATIVE,STATS,SWITCHADMPASS,IP };
 
 screens atualScreen;
 
@@ -156,6 +156,7 @@ private:
 
           timeout = jsonPayload["opentime"];
           systemOn = true;
+          updatedLdr = true;
           startTimeout = millis();
 
           Serial.println(timeout);
@@ -446,7 +447,7 @@ public:
 
 displayManag display(0x27, 16, 2);
 
-void enviarPost(bool listaT[], int listaV[]) {
+void enviarPost(bool listaT[], int listaV[], listaUse[]) {
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
@@ -458,6 +459,7 @@ void enviarPost(bool listaT[], int listaV[]) {
   for (int data = 0; data < 10; data++) {
     payloadDoc["LDRState"].add(listaT[data]);
     payloadDoc["LDRValue"].add(listaV[data]);
+    payloadDoc["LDRSUse"].add(listaUse[data]);
   }
   payloadDoc["LEDState"] = digitalRead(ledPin);
   payloadDoc["mac"] = WiFi.macAddress();
@@ -517,6 +519,23 @@ void updateMultiplex(int bits[]) {
   digitalWrite(s3, bits[3]);
 }
 
+int systemLdr() {
+  int ldrBits[4] = { 0, 0, 0, 0 };
+  int values[10] = {0};
+
+  for (int i = 0; i < 10; i++) {
+    for (int y = 0; y < 4; y++) {
+      ldrBits[y] = ldrs[i][y];
+    }
+    updateMultiplex(ldrBits);
+    delay(20);
+
+    int leitura = analogRead(mux);
+    values[i] = leitura;
+  }
+  return values;
+}
+
 void handleLed() {
   if (server.hasArg("plain")) {
     String payload = server.arg("plain");
@@ -539,6 +558,7 @@ void handleLed() {
         startTimeout = millis();
         timeout = tempoAcionamento;
         systemOn = true;
+        updatedLdr = true;
         digitalWrite(15, 1);
       }
     } else {
@@ -594,6 +614,7 @@ void putFace() {
 
       startTimeout = millis();
       systemOn = true;
+      updatedLdr = true;
 
       display.liberarViaFacial();
 
@@ -763,25 +784,33 @@ void loop() {
     display.resetToHome();
   }
 
-  if (millis() - tempoUltimaLeitura >= intervaloLeitura && !systemOn) {
-    tempoUltimaLeitura = millis();
-
-    int listaValores[10] = { 0 };
-    int ldrBits[4] = { 0, 0, 0, 0 };
-
-    for (int i = 0; i < 10; i++) {
-      for (int y = 0; y < 4; y++) {
-        ldrBits[y] = ldrs[i][y];
-      }
-      updateMultiplex(ldrBits);
-      delay(20);
-
-      int leitura = analogRead(mux);
-      listaValores[i] = leitura;
-      listaTrue[i] = (leitura > 1200);
+  if(systemOn && updatedLdr) {
+    systemLdr(ldrUpdateSys);
+    for(int i; i < 10; i++) {
+      listaTrue[i] = (ldrUpdateSys[i] > 10);
+      listaValores[i] = ldrUpdateSys[i];
     }
 
-    enviarPost(listaTrue, listaValores);
-    display.updateLcd(); 
+    updateLdr = false;
+
+  } else {
+      if(auxSystem) {
+        bool newTrue[10] = {0};
+        String ldrsUse[10] = {""};
+
+        systemLdr(ldrUpdateSys);
+        for(int i; i < 10; i++) {
+          newTrue[i] = (ldrUpdateSys[i] > 10);
+          if(newTrue[i] != listaTrue[i]) {
+            if(listaTrue[i] = true) {
+              ldrsUse[i] = "Retirou";
+            } else { ldrsUse[i] = "Devolveu"; }
+          }
+        }
+
+        enviarPost(listaTrue, listaValores, ldrsUse);
+        display.updateLcd(); 
+        auxSystem = false;
+      }
+    }
   }
-}
