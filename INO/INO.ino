@@ -447,7 +447,7 @@ public:
 
 displayManag display(0x27, 16, 2);
 
-void enviarPost(bool listaT[], int listaV[], listaUse[]) {
+void enviarPost(bool listaT[], int listaV[], String listaUse[]) {
   if (WiFi.status() != WL_CONNECTED) return;
 
   WiFiClientSecure client;
@@ -459,7 +459,7 @@ void enviarPost(bool listaT[], int listaV[], listaUse[]) {
   for (int data = 0; data < 10; data++) {
     payloadDoc["LDRState"].add(listaT[data]);
     payloadDoc["LDRValue"].add(listaV[data]);
-    payloadDoc["LDRSUse"].add(listaUse[data]);
+    payloadDoc["LDRUse"].add(listaUse[data]);
   }
   payloadDoc["LEDState"] = digitalRead(ledPin);
   payloadDoc["mac"] = WiFi.macAddress();
@@ -805,7 +805,7 @@ void loop() {
             if(listaTrue[i] = true) {
               ldrsUse[i] = "Retirou";
             } else { ldrsUse[i] = "Devolveu"; }
-          }
+          } else {ldrsUse[i] = "";}
         }
 
         enviarPost(listaTrue, listaValores, ldrsUse);
