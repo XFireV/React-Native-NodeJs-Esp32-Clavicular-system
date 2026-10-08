@@ -42,6 +42,7 @@ app.post("/home", async (req, rep) => {
         const valuesLdr = req.body?.LDRValue
         const mac = req.body?.mac
         const ip = req.body?.ip || req.ip
+        const uses = req.body?.LDRUse
 
         if (dataLdr && mac) {
             await saveData(dataLdr, valuesLdr, mac, ip)
@@ -334,11 +335,20 @@ const pushAtive = async (mac) => {
 }
 
 // Atualiza leituras LDR e IP
-const saveData = async (ldr, values, mac, ip) => {
+const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
         console.log("[SAVE DATA] Dados ausentes/inválidos")
         return
     }
+
+    const dataLdr = Array.isArray(ldrUse) ? ldrUse
+    .map((valor, index) => {
+        if (valor !== "" && valor != null) {
+            return { [`l${index}`]: valor }
+        }
+        return null
+    })
+    .filter(item => item !== null) : []
 
     const rawData = ldr.map((val, index) => ({
         [metadados[index]]: val
@@ -348,7 +358,7 @@ const saveData = async (ldr, values, mac, ip) => {
     try {
         const { data, error } = await supabase
             .from("IPs")
-            .update({ "ldr": dataReal, "ip": ip })
+            .update({ "ldr": dataReal, "ip": ip, "states": dataLdr })
             .eq("mac", mac)
             .select()
 
