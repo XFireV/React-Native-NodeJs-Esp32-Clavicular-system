@@ -86,6 +86,8 @@ unsigned long startTimeout = millis();
 unsigned long lastPress = millis();
 unsigned long timeUpd = 0;
 
+uint8_t servoRotation = 90;
+
 String senhaUser = "";
 String sketchAdminPass = "";
 bool acess = false;
@@ -610,7 +612,7 @@ void putFace() {
     if (aprovadoPeloServidor) {
       digitalWrite(ledPin, HIGH);
       digitalWrite(15, HIGH);
-      meuServo.write(180);
+      meuServo.write(servoRotation);
 
       startTimeout = millis();
       systemOn = true;
@@ -766,7 +768,7 @@ void loop() {
   }
 
   if (systemOn) {
-    meuServo.write(180);
+    meuServo.write(servoRotation);
     if (millis() - timeUpd >= 200) {
       timeUpd = millis();
       display.sysOn();
