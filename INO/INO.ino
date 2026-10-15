@@ -19,8 +19,9 @@
 
 // configs de rede
 const char* inUseUrl = serverUrl;
-const char* ssid = "IFSUL-Atendimento";
-const char* password = "esmeralda2026";
+char* ssid = "IFSUL-Atendimento";
+char* password = "esmeralda2026";
+bool inWifi = false;
 
 int ldrs[10][4] = {
   { 0, 0, 0, 0 },
@@ -101,7 +102,7 @@ int ldrUpdateSys[10] = {0};
 
 bool activity;
 
-enum screens { HOME,ATIVE,STATS,SWITCHADMPASS,IP };
+enum screens { HOME, ATIVE, STATS, SWITCHADMPASS, IP, WIFI };
 
 screens atualScreen;
 
@@ -295,6 +296,11 @@ private:
   void digits(char car, bool tipo) {
     String& sketchPass = tipo == true ? sketchAdminPass : senhaUser;
     switch (car) {
+      case: 'D':
+        if(!inWifi) {
+          atualScreen = WIFI;
+          pushWifi();
+        } else {}
       case '#':
         if (sketchPass.length() > 0) {
           sketchPass.remove(sketchPass.length() - 1);
@@ -302,18 +308,24 @@ private:
         break;
       case '*':
         if (sketchPass.length() == 8) {
-          if (tipo) {
+          if (tipo == 1) {
             updateAdminPass();
+          else if (tipo == 2) {
+            insertWifi();
+          }
           } else {
             depuratePass();
           }
         } else {sketchPass = "";}
         break;
       default:
-        if (sketchPass.length() < 8) {
-          sketchPass += car;
+        if(!inWifi){
+          if (sketchPass.length() < 8) {
+            sketchPass += car;
+          } else {sketchPass +=
+            car;}
+          break;
         }
-        break;
     }
   }
 
@@ -394,7 +406,7 @@ public:
       return;
     }
 
-    bool typePass = (atualScreen == SWITCHADMPASS);
+    int typePass = (atualScreen == SWITCHADMPASS ? 1 : atualScreen == WIFI ? 2 : 0);
     digits(caract, typePass);
     updateLcd(); 
   }
@@ -431,6 +443,15 @@ public:
           lcd.setCursor(0, 1);
           lcd.print(clearSystem(16, "press 5"));
           break;
+
+        case WIFI:
+          String pass = "Wifi: " + password;
+          String nome = "Rede: " + ssid;
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, rede));
+      
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, pass));
 
         case STATS:
           String showLdr = "";
