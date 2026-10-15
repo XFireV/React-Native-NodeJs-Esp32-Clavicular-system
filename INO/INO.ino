@@ -542,7 +542,7 @@ void updateMultiplex(int bits[]) {
   digitalWrite(s3, bits[3]);
 }
 
-int systemLdr() {
+void systemLdr() {
   int ldrBits[4] = { 0, 0, 0, 0 };
   int values[10] = {0};
 
@@ -554,9 +554,8 @@ int systemLdr() {
     delay(20);
 
     int leitura = analogRead(mux);
-    values[i] = leitura;
+    ldrUpdateSys[i] = leitura;
   }
-  return values;
 }
 
 void handleLed() {
@@ -808,21 +807,21 @@ void loop() {
   }
 
   if(systemOn && updatedLdr) {
-    systemLdr(ldrUpdateSys);
-    for(int i; i < 10; i++) {
+    systemLdr();
+    for(int i = 0; i < 10; i++) {
       listaTrue[i] = (ldrUpdateSys[i] > 10);
       listaValores[i] = ldrUpdateSys[i];
     }
 
-    updateLdr = false;
+    updatedLdr = false;
 
   } else {
       if(auxSystem) {
         bool newTrue[10] = {0};
         String ldrsUse[10] = {""};
 
-        systemLdr(ldrUpdateSys);
-        for(int i; i < 10; i++) {
+        systemLdr();
+        for(int i = 0; i < 10; i++) {
           newTrue[i] = (ldrUpdateSys[i] > 10);
           if(newTrue[i] != listaTrue[i]) {
             if(listaTrue[i] = true) {
