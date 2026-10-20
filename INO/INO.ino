@@ -336,9 +336,9 @@ private:
   void navigating(char car) {
     uint8_t indexScreen = (uint8_t)atualScreen;
 
-    int wifiType = 0;
-    if(car == '2') {wifiType = 1;} else {car == '8') {wifiType = 0;} 
-    wifiIndex = (wifiIndex == 1 ? 0 : 1);
+    bool wifiType = 0;
+    if(car == '2') {wifiType = 1;} if {car == '8') {wifiType = 0;} 
+    wifiIndex = (wifiIndex == wifiType ? 0 : 1);
     
     if (car == '5' && !editing) {
       if (atualScreen == ATIVE) {
