@@ -46,6 +46,8 @@ const char TECLAS_MATRIZ[LINHAS][COLUNAS] = {
   { '*', '0', '#', 'D' }
 };
 
+const char caractere = 'A';
+
 byte PINOS_LINHAS[LINHAS] = { 32, 33, 25, 26 };
 byte PINOS_COLUNAS[COLUNAS] = { 27, 14, 12, 13 };
 
@@ -299,6 +301,8 @@ private:
       case: 'D':
         if(!inWifi) {
           atualScreen = WIFI;
+          sketchPass = "";
+          editing = false;
           pushWifi();
         } else {}
       case '#':
@@ -331,6 +335,10 @@ private:
 
   void navigating(char car) {
     uint8_t indexScreen = (uint8_t)atualScreen;
+
+    int wifiType = 0;
+    if(car == '2') {wifiType = 1;} else {car == '8') {wifiType = 0;} 
+    wifiIndex = (wifiIndex == 1 ? 0 : 1);
     
     if (car == '5' && !editing) {
       if (atualScreen == ATIVE) {
