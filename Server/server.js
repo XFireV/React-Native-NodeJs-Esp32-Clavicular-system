@@ -340,14 +340,14 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         return
     }
 
-    const dataLdr = Array.isArray(ldrUse) ? ldrUse
-    .map((valor, index) => {
-        if (valor !== null && valor !== undefined && valor !== "") {
-            return { [`l${index}`]: valor }
-        }
-        return null
-    })
-    .filter(item => item !== null) : []
+    const dataLdr = Array.isArray(ldrUse) 
+        ? ldrUse.reduce((acc, valor, index) => {
+            if (valor !== null && valor !== undefined && valor !== "") {
+                acc[`l${index}`] = valor
+            }
+            return acc
+        }, {})
+        : {}
 
     const rawData = ldr.map((val, index) => ({
         [metadados[index]]: val
