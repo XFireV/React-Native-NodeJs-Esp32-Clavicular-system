@@ -173,7 +173,7 @@ app.post("/update", async (req, rep) => {
     }
 })
 
-// ROTA: Ativar e Salvar no Histórico
+// ROTA: Ativar e Salvar no Histórico (Abertura do Sistema)
 app.post("/push", async (req, rep) => {
     const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
     const raw = req.body?.pass
@@ -196,10 +196,6 @@ app.post("/push", async (req, rep) => {
                 dataUs = Array.isArray(data.userequips) ? data.userequips[0]?.equipid : data.userequips.equipid;
             }
 
-            console.log(dataUs)
-            console.log(from)
-            console.log(user)
-            
             if (dataUs) {
                 dados.equipe = dataUs
                 dados.user = user
@@ -334,6 +330,7 @@ const pushAtive = async (mac) => {
     }
 }
 
+// SALVA ESTADO DOS LDRS E REGISTRA RETIRADA/DEVOLUÇÃO DE CHAVES NO HISTÓRICO
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
         console.log("[SAVE DATA] Dados ausentes/inválidos");
@@ -341,6 +338,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
     }
 
     try {
+        // 1. Busca os estados atuais gravados no banco para o dispositivo
         const { data: dbData, error: dbError } = await supabase
             .from("IPs")
             .select("states")
@@ -356,16 +354,73 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             currentState = {};
         }
 
+        // 2. Busca a equipe e o último usuário ativo que abriu o claviculário
+        const { data: equipData } = await supabase
+            .from("equipes")
+            .select("id")
+            .ilike("mac", mac)
+            .maybeSingle();
+
+        let activeUser = "Usuário";
+        let activeFrom = "Físico";
+        const equipId = equipData?.id || null;
+
+        if (equipId) {
+            const { data: lastHist } = await supabase
+                .from("historico")
+                .select("user, from")
+                .eq("equipid", equipId)
+                .order("id", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (lastHist?.user) {
+                activeUser = lastHist.user;
+                activeFrom = lastHist.from || "Físico";
+            }
+        }
+
+        // 3. Processa LDRUse e prepara inserções individuais no Histórico
+        const novoshistoricos = [];
+
         if (Array.isArray(ldrUse)) {
             ldrUse.forEach((acao, index) => {
+                const numeroChave = index + 1;
+
                 if (acao === "Retirou") {
-                    currentState[`l${index}`] = "Retirou"; 
+                    currentState[`l${index}`] = "Retirou";
+                    novoshistoricos.push({
+                        user: activeUser,
+                        from: activeFrom,
+                        descricao: `Chave ${numeroChave} Retirada`,
+                        equipid: equipId
+                    });
                 } else if (acao === "Devolveu") {
-                    delete currentState[`l${index}`]; 
+                    delete currentState[`l${index}`];
+                    novoshistoricos.push({
+                        user: activeUser,
+                        from: activeFrom,
+                        descricao: `Chave ${numeroChave} Devolvida`,
+                        equipid: equipId
+                    });
                 }
             });
         }
 
+        // 4. Insere as movimentações de chaves no histórico se houver alterações
+        if (novoshistoricos.length > 0) {
+            const { error: histError } = await supabase
+                .from("historico")
+                .insert(novoshistoricos);
+
+            if (histError) {
+                console.error("[SAVE DATA] Erro ao salvar movimentação no histórico:", histError.message);
+            } else {
+                console.log(`[SAVE DATA] ${novoshistoricos.length} evento(s) de chave gravado(s) para o usuário ${activeUser}.`);
+            }
+        }
+
+        // 5. Atualiza as leituras brutas de LDR e o objeto de estados no banco
         const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
         const dataReal = Object.assign({}, ...rawData);
 
@@ -382,6 +437,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         console.error("Exceção saveData:", error);
     }
 }
+
 supabase
     .channel("db-changes")
     .on('postgres_changes', { 
@@ -405,7 +461,6 @@ async function handleConfirm(openT) {
     const timeout = setTimeout(() => controller.abort(), 7000)
     const payload = { "ative": true, "time": openT }
 
-    // Rota pública do Ngrok direcionada para o ESP32
     const urlFinal = `${NGROK_ESP32_URL}/led`
 
     try {
