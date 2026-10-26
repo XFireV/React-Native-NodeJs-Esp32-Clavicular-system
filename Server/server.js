@@ -45,7 +45,7 @@ app.post("/home", async (req, rep) => {
         const uses = req.body?.LDRUse
 
         if (dataLdr && mac) {
-            await saveData(dataLdr, valuesLdr, mac, ip)
+            await saveData(dataLdr, valuesLdr, mac, ip, uses)
         } else {
             console.log("[HOME] Payload incompleto recebido:", req.body)
         }
