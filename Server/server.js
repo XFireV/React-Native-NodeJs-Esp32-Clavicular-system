@@ -336,35 +336,50 @@ const pushAtive = async (mac) => {
 
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
-        console.log("[SAVE DATA] Dados ausentes/inválidos")
-        return
+        console.log("[SAVE DATA] Dados ausentes/inválidos");
+        return;
     }
 
-    const dataLdr = Array.isArray(ldrUse) 
-        ? ldrUse.reduce((acc, valor, index) => {
-            if (valor !== null && valor !== undefined && valor !== "") {
-                acc[`l${index}`] = valor
-            }
-            return acc
-        }, {})
-        : {}
-
-    const rawData = ldr.map((val, index) => ({
-        [metadados[index]]: val
-    }))
-    const dataReal = Object.assign({}, ...rawData)
-
     try {
-        const { data, error } = await supabase
+        const { data: dbData, error: dbError } = await supabase
             .from("IPs")
-            .update({ "ldr": dataReal, "ip": ip, "states": dataLdr })
+            .select("states")
             .eq("mac", mac)
-            .select()
+            .single();
 
-        if (error) console.error("Erro no saveData:", error.message)
-        else console.log("[SAVE DATA] Atualizado com sucesso.") 
+        if (dbError) {
+            console.error("[SAVE DATA] Erro ao buscar states no banco:", dbError.message);
+            return;
+        }
+
+        let currentState = dbData?.states || {};
+        if (typeof currentState !== 'object' || Array.isArray(currentState)) {
+            currentState = {};
+        }
+
+        if (Array.isArray(ldrUse)) {
+            ldrUse.forEach((acao, index) => {
+                if (acao === "Retirou") {
+                    currentState[`l${index}`] = "Retirou"; 
+                } else if (acao === "Devolveu") {
+                    delete currentState[`l${index}`]; 
+                }
+            });
+        }
+
+        const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
+        const dataReal = Object.assign({}, ...rawData);
+
+        const { error: updateError } = await supabase
+            .from("IPs")
+            .update({ "ldr": dataReal, "ip": ip, "states": currentState })
+            .eq("mac", mac);
+
+        if (updateError) throw updateError;
+        console.log("[SAVE DATA] Atualizado no banco. Status Acumulado:", currentState);
+
     } catch (error) {
-        console.error("Exceção saveData:", error)
+        console.error("Exceção saveData:", error);
     }
 }
 
