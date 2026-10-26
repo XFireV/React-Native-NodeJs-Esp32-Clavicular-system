@@ -347,9 +347,8 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             .eq("mac", mac)
             .single();
 
-        if (dbError) {
+        if (dbError && dbError.code !== "PGRST116") { 
             console.error("[SAVE DATA] Erro ao buscar states no banco:", dbError.message);
-            return;
         }
 
         let currentState = dbData?.states || {};
@@ -376,13 +375,13 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             .eq("mac", mac);
 
         if (updateError) throw updateError;
-        console.log("[SAVE DATA] Atualizado no banco. Status Acumulado:", currentState);
+        
+        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status atual:", currentState);
 
     } catch (error) {
         console.error("Exceção saveData:", error);
     }
 }
-
 supabase
     .channel("db-changes")
     .on('postgres_changes', { 
