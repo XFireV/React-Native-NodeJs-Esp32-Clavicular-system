@@ -330,7 +330,6 @@ const pushAtive = async (mac) => {
     }
 }
 
-// SALVA ESTADO DOS LDRS E REGISTRA RETIRADA/DEVOLUÇÃO DE CHAVES NO HISTÓRICO
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
         console.log("[SAVE DATA] Dados ausentes/inválidos");
@@ -338,7 +337,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
     }
 
     try {
-        // 1. Busca os estados atuais gravados no banco para o dispositivo
         const { data: dbData, error: dbError } = await supabase
             .from("IPs")
             .select("states")
@@ -354,7 +352,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             currentState = {};
         }
 
-        // 2. Busca a equipe e o último usuário ativo que abriu o claviculário
         const { data: equipData } = await supabase
             .from("equipes")
             .select("id")
@@ -380,8 +377,8 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             }
         }
 
-        // 3. Processa LDRUse e prepara inserções individuais no Histórico
-        const novoshistoricos = [];
+        const retiradas = [];
+        const devolucoes = [];
 
         if (Array.isArray(ldrUse)) {
             ldrUse.forEach((acao, index) => {
@@ -389,7 +386,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
                 if (acao === "Retirou") {
                     currentState[`l${index}`] = "Retirou";
-                    novoshistoricos.push({
+                    retiradas.push({
                         user: activeUser,
                         from: activeFrom,
                         descricao: `Chave ${numeroChave} Retirada`,
@@ -397,7 +394,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                     });
                 } else if (acao === "Devolveu") {
                     delete currentState[`l${index}`];
-                    novoshistoricos.push({
+                    devolucoes.push({
                         user: activeUser,
                         from: activeFrom,
                         descricao: `Chave ${numeroChave} Devolvida`,
@@ -407,20 +404,30 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             });
         }
 
-        // 4. Insere as movimentações de chaves no histórico se houver alterações
-        if (novoshistoricos.length > 0) {
-            const { error: histError } = await supabase
+        if (retiradas.length > 0) {
+            const { error: errRetirada } = await supabase
                 .from("historico")
-                .insert(novoshistoricos);
+                .insert(retiradas);
 
-            if (histError) {
-                console.error("[SAVE DATA] Erro ao salvar movimentação no histórico:", histError.message);
+            if (errRetirada) {
+                console.error("[SAVE DATA] Erro ao salvar retiradas no histórico:", errRetirada.message);
             } else {
-                console.log(`[SAVE DATA] ${novoshistoricos.length} evento(s) de chave gravado(s) para o usuário ${activeUser}.`);
+                console.log(`[SAVE DATA] ${retiradas.length} retirada(s) gravada(s) para ${activeUser}.`);
             }
         }
 
-        // 5. Atualiza as leituras brutas de LDR e o objeto de estados no banco
+        if (devolucoes.length > 0) {
+            const { error: errDevolucao } = await supabase
+                .from("historico")
+                .insert(devolucoes);
+
+            if (errDevolucao) {
+                console.error("[SAVE DATA] Erro ao salvar devoluções no histórico:", errDevolucao.message);
+            } else {
+                console.log(`[SAVE DATA] ${devolucoes.length} devolução(ões) gravada(s) para ${activeUser}.`);
+            }
+        }
+
         const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
         const dataReal = Object.assign({}, ...rawData);
 
