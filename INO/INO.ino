@@ -298,7 +298,7 @@ private:
   void digits(char car, bool tipo) {
     String& sketchPass = tipo == true ? sketchAdminPass : senhaUser;
     switch (car) {
-      case: 'D':
+      case 'D':
         if(!inWifi) {
           atualScreen = WIFI;
           sketchPass = "";
@@ -314,6 +314,7 @@ private:
         if (sketchPass.length() == 8) {
           if (tipo == 1) {
             updateAdminPass();
+          }
           else if (tipo == 2) {
             insertWifi();
           }
@@ -824,23 +825,33 @@ void loop() {
     updatedLdr = false;
 
   } else {
-      if(auxSystem) {
-        bool newTrue[10] = {0};
-        String ldrsUse[10] = {""};
+    bool teveMudanca = false;
+    bool newTrue[10] = {0};
+    String ldrsUse[10] = {""};
 
-        systemLdr();
-        for(int i = 0; i < 10; i++) {
-          newTrue[i] = (ldrUpdateSys[i] > 10);
-          if(newTrue[i] != listaTrue[i]) {
-            if(listaTrue[i] = true) {
-              ldrsUse[i] = "Retirou";
-            } else { ldrsUse[i] = "Devolveu"; }
-          } else {ldrsUse[i] = "";}
+    systemLdr();
+    for (int i = 0; i < 10; i++) {
+      newTrue[i] = (ldrUpdateSys[i] > 10);
+      
+      if (newTrue[i] != listaTrue[i]) { 
+        teveMudanca = true;
+        
+        if (listaTrue[i] == true) { 
+          ldrsUse[i] = "Retirou";
+        } else { 
+          ldrsUse[i] = "Devolveu"; 
         }
-
-        enviarPost(listaTrue, listaValores, ldrsUse);
-        display.updateLcd(); 
-        auxSystem = false;
+        
+        listaTrue[i] = newTrue[i];
+        listaValores[i] = ldrUpdateSys[i];
+      } else {
+        ldrsUse[i] = "";
       }
     }
+
+    if (teveMudanca) {
+      enviarPost(listaTrue, listaValores, ldrsUse);
+      display.updateLcd();
+    }
   }
+} // Fim do loop()
