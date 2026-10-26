@@ -314,14 +314,14 @@ private:
         if (sketchPass.length() == 8) {
           if (tipo == 1) {
             updateAdminPass();
-          }
-          else if (tipo == 2) {
-            insertWifi();
-          }
+          } else if (tipo == 2) {
+            insertWifi(); 
           } else {
             depuratePass();
           }
-        } else {sketchPass = "";}
+        } else {
+          sketchPass = "";
+        }
         break;
       default:
         if(!inWifi){
@@ -338,7 +338,9 @@ private:
     uint8_t indexScreen = (uint8_t)atualScreen;
 
     bool wifiType = 0;
-    if(car == '2') {wifiType = 1;} if {car == '8') {wifiType = 0;} 
+    int wifiIndex = 0;
+  
+    if(car == '2') {wifiType = 1;} if (car == '8') {wifiType = 0;} 
     wifiIndex = (wifiIndex == wifiType ? 0 : 1);
     
     if (car == '5' && !editing) {
@@ -453,14 +455,16 @@ public:
           lcd.print(clearSystem(16, "press 5"));
           break;
 
-        case WIFI:
+        case WIFI: {
           String pass = "Wifi: " + password;
           String nome = "Rede: " + ssid;
           lcd.setCursor(0, 0);
-          lcd.print(clearSystem(16, rede));
-      
+          lcd.print(clearSystem(16, nome));
+          
           lcd.setCursor(0, 1);
           lcd.print(clearSystem(16, pass));
+          break; 
+        }
 
         case STATS:
           String showLdr = "";
