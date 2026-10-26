@@ -334,7 +334,6 @@ const pushAtive = async (mac) => {
     }
 }
 
-// Atualiza leituras LDR e IP
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!ldr || !Array.isArray(ldr) || !mac) {
         console.log("[SAVE DATA] Dados ausentes/inválidos")
@@ -343,7 +342,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
     const dataLdr = Array.isArray(ldrUse) ? ldrUse
     .map((valor, index) => {
-        if (valor !== "" && valor != null) {
+        if (valor !== null && valor !== undefined && valor !== "") {
             return { [`l${index}`]: valor }
         }
         return null
@@ -363,16 +362,12 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             .select()
 
         if (error) console.error("Erro no saveData:", error.message)
-        else {
-            console.log("[SAVE DATA] Atualizado:", data) 
-            console.log("[LDR VALUES] Valores brutos:", values)
-        }
+        else console.log("[SAVE DATA] Atualizado com sucesso.") 
     } catch (error) {
         console.error("Exceção saveData:", error)
     }
 }
 
-// REALTIME: Escuta alterações na coluna `confirm`
 supabase
     .channel("db-changes")
     .on('postgres_changes', { 
