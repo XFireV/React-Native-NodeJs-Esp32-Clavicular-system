@@ -231,6 +231,64 @@ app.post("/push", async (req, rep) => {
                                 app.log.error("Senha inválida ou MAC não associado a um Admin:", errorAdm.message)
                                 return rep.status(401).send({ error: "Senha incorreta ou acesso negado" })
                             } else {
+                                throw errorAdmapp.post("/push", async (req, rep) => {
+    const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
+    const raw = req.body?.pass
+    const mac = req.body?.mac
+    const user = req.body?.user
+    const from = req.body?.from
+    
+    try {
+        if (user != null || from != null) {
+            dados.user = user || "Usuário App";
+            dados.from = from || "App";
+
+            const { data: equipData, error: equipErr } = await supabase
+                .from("equipes")
+                .select("id, opentime, ip")
+                .ilike("mac", mac)
+                .maybeSingle();
+
+            if (equipErr || !equipData) {
+                app.log.error("Equipamento/MAC não encontrado para a requisição do App/Facial")
+                return rep.status(404).send({ error: "Equipamento não encontrado" });
+            }
+
+            dados.equipe = equipData.id;
+            dados.opentime = equipData.opentime || 10000;
+            dados.ip = equipData.ip;
+
+        } else {
+            const senha = typeof raw === 'string' ? Number(raw) : raw
+
+            if (String(senha).length !== 8) {
+                return rep.status(400).send({ error: "Senha excedente ou impossível" })
+            }
+            if (!senha) {
+                return rep.status(400).send({ error: "Senha não fornecida" })
+            }
+
+            const { data, error: erroTake } = await supabase
+                .from("userequips")
+                .select("equipes(id, opentime), usuarios(user)")
+                .eq("passe", senha)
+                .single()
+
+            if (erroTake) {
+                if (erroTake.code === "PGRST116") {
+                    try {
+                        const { error: errorAdm, data: dataAdm } = await supabase
+                            .from("IPs")
+                            .select("id") 
+                            .ilike("mac", mac)
+                            .eq("passAdmin", senha)
+                            .single()
+
+                        if (errorAdm) {
+                            if (errorAdm.code === "PGRST116") {
+                                app.log.error("Senha inválida ou MAC não associado a um Admin:", errorAdm.message)
+                                return rep.status(401).send({ error: "Senha incorreta ou acesso negado" })
+                            } else {
                                 throw errorAdm
                             }
                         }
@@ -286,6 +344,11 @@ app.post("/push", async (req, rep) => {
 
             if (erroInsert) throw erroInsert
 
+            // CORREÇÃO: Se veio do Facial ou se o App chamou a API direto, força a abertura via Ngrok!
+            if (dados.from === "Facial" || dados.from === "App") {
+                handleConfirm(dados.opentime);
+            }
+
             return rep.send({
                 confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
                 opentime: dados.opentime,
@@ -318,134 +381,7 @@ const pushAtive = async (mac) => {
     }
 }
 
-const saveData = async (ldr, values, mac, ip, ldrUse) => {
-    if (!ldr || !Array.isArray(ldr) || !mac) {
-        console.log("[SAVE DATA] Dados ausentes/inválidos");
-        return;
-    }
-
-    try {
-        const { data: equipData } = await supabase
-            .from("equipes")
-            .select("id")
-            .ilike("mac", mac)
-            .maybeSingle();
-
-        const equipId = equipData?.id || null;
-        let activeUser = null;
-        let activeFrom = "Físico";
-
-        if (equipId) {
-            const { data: lastHist } = await supabase
-                .from("historico")
-                .select("user, from")
-                .eq("equipid", equipId)
-                .order("id", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            if (lastHist?.user) {
-                activeUser = lastHist.user;
-                activeFrom = lastHist.from || "Físico";
-            }
-        }
-
-        if (!activeUser) {
-            const { data: fallbackUser } = await supabase
-                .from("usuarios")
-                .select("user")
-                .limit(1)
-                .maybeSingle();
-            
-            activeUser = fallbackUser?.user || null;
-        }
-
-        if (!activeUser) {
-            console.error("[SAVE DATA] Erro crítico: Nenhum usuário encontrado na tabela 'usuarios' para associar ao histórico.");
-            return;
-        }
-
-        const novosHistoricos = [];
-
-        if (Array.isArray(ldrUse)) {
-            ldrUse.forEach((acao, index) => {
-                const numeroChave = index + 1;
-
-                if (acao === false) { 
-                    novosHistoricos.push({
-                        user: activeUser,
-                        from: activeFrom,
-                        descricao: `Chave ${numeroChave} Retirada`,
-                        equipid: equipId
-                    });
-                } else if (acao === true) { 
-                    novosHistoricos.push({
-                        user: activeUser,
-                        from: activeFrom,
-                        descricao: `Chave ${numeroChave} Devolvida`,
-                        equipid: equipId
-                    });
-                }
-            });
-        }
-        
-        if (novosHistoricos.length > 0) {
-            const { error: errHist } = await supabase
-                .from("historico")
-                .insert(novosHistoricos);
-
-            if (errHist) {
-                console.error("[SAVE DATA] Erro ao salvar novo histórico:", errHist.message);
-            } else {
-                console.log(`[SAVE DATA] ${novosHistoricos.length} ação(ões) gravada(s) no histórico para ${activeUser}.`);
-            }
-        }
-
-        let newState = {};
-
-        if (equipId) {
-            await Promise.all(
-                Array.from({ length: 10 }).map(async (_, i) => {
-                    const numeroChave = i + 1;
-                    const chaveName = metadados[i];
-
-                    const { data: lastKeyAction } = await supabase
-                        .from("historico")
-                        .select("descricao")
-                        .eq("equipid", equipId)
-                        .ilike("descricao", `Chave ${numeroChave} %`)
-                        .order("id", { ascending: false })
-                        .limit(1)
-                        .maybeSingle();
-
-                    if (lastKeyAction) {
-                        if (lastKeyAction.descricao.endsWith("Retirada")) {
-                            newState[chaveName] = false;
-                        } 
-                        else if (lastKeyAction.descricao.endsWith("Devolvida")) {
-                            newState[chaveName] = true; 
-                        }
-                    }
-                })
-            );
-        }
-
-        const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
-        const dataReal = Object.assign({}, ...rawData);
-
-        const { error: updateError } = await supabase
-            .from("IPs")
-            .update({ "ldr": dataReal, "ip": ip, "states": newState })
-            .ilike("mac", mac);
-
-        if (updateError) throw updateError;
-        
-        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status atualizado por chave:", newState);
-
-    } catch (error) {
-        console.error("Exceção saveData:", error);
-    }
-}
+// (MANTENHA A SUA FUNÇÃO saveData EXATAMENTE COMO ESTÁ)
 
 supabase
     .channel("db-changes")
@@ -457,14 +393,16 @@ supabase
     }, async payload => {
         console.log(`[REALTIME] Trigger confirm disparado para MAC: ${payload.new.mac}`)
         const macEsp = payload.new.mac
+        const userAppReal = payload.new.user_app // <-- CORREÇÃO: Lê quem apertou no app (Crie a coluna user_app em IPs)
         
         if (macEsp) {
-            await removeConfirm(macEsp)
+            await removeConfirm(macEsp, userAppReal)
         }
     })
     .subscribe()
 
-const removeConfirm = async (mac) => {
+// CORREÇÃO: Agora removeConfirm recebe o nome real do App para evitar o bug do "Usuário Fantasma"
+const removeConfirm = async (mac, userAppReal) => {
     try {
         const { data: equipData } = await supabase
             .from("equipes")
@@ -474,29 +412,19 @@ const removeConfirm = async (mac) => {
 
         const equipId = equipData?.id || null;
 
-        let activeUser = "Administrador";
-        if (equipId) {
-            const { data: lastHist } = await supabase
-                .from("historico")
+        let activeUser = userAppReal; 
+        
+        // Se o App não mandou o nome (fallback de segurança)
+        if (!activeUser && equipId) {
+            const { data: fallbackUser } = await supabase
+                .from("usuarios")
                 .select("user")
-                .eq("equipid", equipId)
-                .order("id", { ascending: false })
                 .limit(1)
                 .maybeSingle();
-            
-            if (lastHist?.user) {
-                activeUser = lastHist.user;
-            } else {
-                const { data: fallbackUser } = await supabase
-                    .from("usuarios")
-                    .select("user")
-                    .limit(1)
-                    .maybeSingle();
-                activeUser = fallbackUser?.user || "Administrador";
-            }
+            activeUser = fallbackUser?.user || "Administrador";
         }
 
-        if (equipId) {
+        if (equipId && activeUser) {
             const { error: histError } = await supabase
                 .from("historico")
                 .insert([{
@@ -513,10 +441,9 @@ const removeConfirm = async (mac) => {
             }
         }
 
-        // 4. Atualiza o confirm para false no banco para resetar o gatilho
         const { data, error } = await supabase
             .from("IPs")
-            .update({ 'confirm': false })
+            .update({ 'confirm': false, 'user_app': null }) // Reseta o user_app também
             .eq("mac", mac)
             .eq('confirm', true)
             .select()
