@@ -401,27 +401,28 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         let newState = {};
 
         if (equipId) {
-            // Roda buscas simultâneas para saber o último estado de cada chave no banco
             await Promise.all(
                 Array.from({ length: 10 }).map(async (_, i) => {
                     const numeroChave = i + 1;
-                    const chaveName = metadados[i]; // Pega "l1", "l2", etc.
+                    const chaveName = metadados[i]; // "l1", "l2", etc.
 
-                    // Pega estritamente a ÚLTIMA ação que envolveu essa chave específica
                     const { data: lastKeyAction } = await supabase
                         .from("historico")
                         .select("descricao")
                         .eq("equipid", equipId)
-                        .ilike("descricao", `Chave ${numeroChave} %`) // O espaço aqui evita confundir "Chave 1" com "Chave 10"
+                        .ilike("descricao", `Chave ${numeroChave} %`)
                         .order("id", { ascending: false })
                         .limit(1)
                         .maybeSingle();
 
-                    // Se a última ação dessa chave no histórico foi "Retirada", mantemos no states
-                    if (lastKeyAction && lastKeyAction.descricao.includes("Retirada")) {
-                        newState[chaveName] = false;
+                    if (lastKeyAction) {
+                        if (lastKeyAction.descricao.endsWith("Retirada")) {
+                            newState[chaveName] = false;
+                        } 
+                        else if (lastKeyAction.descricao.endsWith("Devolvida")) {
+                            newState[chaveName] = true; 
+                        }
                     }
-                    // Se for "Devolvida" ou a chave nunca foi mexida, ela não entra no objeto 'newState'
                 })
             );
         }
@@ -429,7 +430,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
         const dataReal = Object.assign({}, ...rawData);
 
-        // Faz o Update usando a coluna "states" baseada na verdade absoluta (o banco de dados)
         const { error: updateError } = await supabase
             .from("IPs")
             .update({ "ldr": dataReal, "ip": ip, "states": newState })
@@ -437,12 +437,13 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
         if (updateError) throw updateError;
         
-        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status recriado pelo histórico:", newState);
+        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status atualizado por chave:", newState);
 
     } catch (error) {
         console.error("Exceção saveData:", error);
     }
 }
+
 supabase
     .channel("db-changes")
     .on('postgres_changes', { 
