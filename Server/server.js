@@ -179,7 +179,6 @@ app.post("/push", async (req, rep) => {
     const mac = req.body?.mac
     const user = req.body?.user
     const from = req.body?.from
-    console.log("[USUARIO]:", user)
     
     try {
         if (user != null || from != null) {
@@ -465,7 +464,79 @@ supabase
     })
     .subscribe()
 
-// Dispara o acionamento para o ESP32 via Ngrok
+const removeConfirm = async (mac) => {
+    try {
+        const { data: equipData } = await supabase
+            .from("equipes")
+            .select("id, opentime")
+            .ilike("mac", mac)
+            .maybeSingle();
+
+        const equipId = equipData?.id || null;
+
+        let activeUser = "Administrador";
+        if (equipId) {
+            const { data: lastHist } = await supabase
+                .from("historico")
+                .select("user")
+                .eq("equipid", equipId)
+                .order("id", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            
+            if (lastHist?.user) {
+                activeUser = lastHist.user;
+            } else {
+                const { data: fallbackUser } = await supabase
+                    .from("usuarios")
+                    .select("user")
+                    .limit(1)
+                    .maybeSingle();
+                activeUser = fallbackUser?.user || "Administrador";
+            }
+        }
+
+        if (equipId) {
+            const { error: histError } = await supabase
+                .from("historico")
+                .insert([{
+                    user: activeUser,
+                    from: "App",
+                    descricao: "Sistema Ativado",
+                    equipid: equipId
+                }]);
+
+            if (histError) {
+                console.error("[REALTIME] Erro ao salvar histórico de ativação pelo App:", histError.message);
+            } else {
+                console.log(`[REALTIME] Histórico 'Sistema Ativado' salvo para ${activeUser} (Origem: App)`);
+            }
+        }
+
+        // 4. Atualiza o confirm para false no banco para resetar o gatilho
+        const { data, error } = await supabase
+            .from("IPs")
+            .update({ 'confirm': false })
+            .eq("mac", mac)
+            .eq('confirm', true)
+            .select()
+
+        if (error) {
+            console.error("Erro na query do removeConfirm:", error.message)
+            return
+        }
+
+        if (data && data.length > 0) {
+            const openTime = equipData?.opentime || 5000;
+            await handleConfirm(openTime)
+        } else {
+            console.log("[REMOVE CONFIRM] Nenhuma linha atualizada (confirm=true não encontrado).")
+        }
+    } catch (error) {
+        console.log("Erro no removeConfirm:", error)
+    }
+}
+
 async function handleConfirm(openT) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 7000)
@@ -493,51 +564,3 @@ async function handleConfirm(openT) {
         clearTimeout(timeout)
     }
 }
-
-const removeConfirm = async (mac) => {
-    try {
-        const { data, error } = await supabase
-            .from("IPs")
-            .update({ 'confirm': false })
-            .eq("mac", mac)
-            .eq('confirm', true)
-            .select()
-
-        if (error) {
-            console.error("Erro na query do removeConfirm:", error.message)
-            return
-        }
-
-        if (data && data.length > 0) {
-            const openTime = await takeTimeout(mac)
-            
-            await handleConfirm(openTime)
-        } else {
-            console.log("[REMOVE CONFIRM] Nenhuma linha atualizada (confirm=true não encontrado).")
-        }
-    } catch (error) {
-        console.log("Erro no removeConfirm:", error)
-    }
-}
-
-const takeTimeout = async (mac) => {
-    const tempoPadrao = 5000; 
-    if (!mac) return tempoPadrao;
-
-    try {
-        const { data, error } = await supabase
-            .from("equipes")
-            .select("opentime")
-            .eq("mac", mac)
-            .maybeSingle()
-
-        if (error) throw error
-
-        return data?.opentime || tempoPadrao; 
-    } catch (error) {
-        console.error("[TAKE TIMEOUT] Erro ao buscar tempo:", error.message)
-        return tempoPadrao;
-    }
-}
-
-starting()
