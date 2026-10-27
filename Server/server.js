@@ -337,21 +337,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
     }
 
     try {
-        const { data: dbData, error: dbError } = await supabase
-            .from("IPs")
-            .select("states")
-            .eq("mac", mac)
-            .single();
-
-        if (dbError && dbError.code !== "PGRST116") { 
-            console.error("[SAVE DATA] Erro ao buscar states no banco:", dbError.message);
-        }
-
-        let currentState = dbData?.states || {};
-        if (typeof currentState !== 'object' || Array.isArray(currentState)) {
-            currentState = {};
-        }
-
         const { data: equipData } = await supabase
             .from("equipes")
             .select("id")
@@ -377,25 +362,21 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             }
         }
 
-        const retiradas = [];
-        const devolucoes = [];
+        const novosHistoricos = [];
 
         if (Array.isArray(ldrUse)) {
             ldrUse.forEach((acao, index) => {
                 const numeroChave = index + 1;
 
                 if (acao === false) { 
-                    currentState[`l${index}`] = false; 
-                    retiradas.push({
+                    novosHistoricos.push({
                         user: activeUser,
                         from: activeFrom,
                         descricao: `Chave ${numeroChave} Retirada`,
                         equipid: equipId
                     });
-                
                 } else if (acao === true) { 
-                    delete currentState[`l${index}`]; 
-                    devolucoes.push({
+                    novosHistoricos.push({
                         user: activeUser,
                         from: activeFrom,
                         descricao: `Chave ${numeroChave} Devolvida`,
@@ -405,47 +386,63 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             });
         }
         
-        if (retiradas.length > 0) {
-            const { error: errRetirada } = await supabase
+        if (novosHistoricos.length > 0) {
+            const { error: errHist } = await supabase
                 .from("historico")
-                .insert(retiradas);
+                .insert(novosHistoricos);
 
-            if (errRetirada) {
-                console.error("[SAVE DATA] Erro ao salvar retiradas no histórico:", errRetirada.message);
+            if (errHist) {
+                console.error("[SAVE DATA] Erro ao salvar novo histórico:", errHist.message);
             } else {
-                console.log(`[SAVE DATA] ${retiradas.length} retirada(s) gravada(s) para ${activeUser}.`);
+                console.log(`[SAVE DATA] ${novosHistoricos.length} ação(ões) gravada(s) no histórico para ${activeUser}.`);
             }
         }
 
-        if (devolucoes.length > 0) {
-            const { error: errDevolucao } = await supabase
-                .from("historico")
-                .insert(devolucoes);
+        let newState = {};
 
-            if (errDevolucao) {
-                console.error("[SAVE DATA] Erro ao salvar devoluções no histórico:", errDevolucao.message);
-            } else {
-                console.log(`[SAVE DATA] ${devolucoes.length} devolução(ões) gravada(s) para ${activeUser}.`);
-            }
+        if (equipId) {
+            // Roda buscas simultâneas para saber o último estado de cada chave no banco
+            await Promise.all(
+                Array.from({ length: 10 }).map(async (_, i) => {
+                    const numeroChave = i + 1;
+                    const chaveName = metadados[i]; // Pega "l1", "l2", etc.
+
+                    // Pega estritamente a ÚLTIMA ação que envolveu essa chave específica
+                    const { data: lastKeyAction } = await supabase
+                        .from("historico")
+                        .select("descricao")
+                        .eq("equipid", equipId)
+                        .ilike("descricao", `Chave ${numeroChave} %`) // O espaço aqui evita confundir "Chave 1" com "Chave 10"
+                        .order("id", { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+
+                    // Se a última ação dessa chave no histórico foi "Retirada", mantemos no states
+                    if (lastKeyAction && lastKeyAction.descricao.includes("Retirada")) {
+                        newState[chaveName] = false;
+                    }
+                    // Se for "Devolvida" ou a chave nunca foi mexida, ela não entra no objeto 'newState'
+                })
+            );
         }
 
         const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
         const dataReal = Object.assign({}, ...rawData);
 
+        // Faz o Update usando a coluna "states" baseada na verdade absoluta (o banco de dados)
         const { error: updateError } = await supabase
             .from("IPs")
-            .update({ "ldr": dataReal, "ip": ip, "states": currentState })
-            .eq("mac", mac);
+            .update({ "ldr": dataReal, "ip": ip, "states": newState })
+            .ilike("mac", mac);
 
         if (updateError) throw updateError;
         
-        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status atual:", currentState);
+        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status recriado pelo histórico:", newState);
 
     } catch (error) {
         console.error("Exceção saveData:", error);
     }
 }
-
 supabase
     .channel("db-changes")
     .on('postgres_changes', { 
