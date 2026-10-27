@@ -332,9 +332,9 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             .ilike("mac", mac)
             .maybeSingle();
 
-        let activeUser = "Usuário";
-        let activeFrom = "Físico";
         const equipId = equipData?.id || null;
+        let activeUser = null;
+        let activeFrom = "Físico";
 
         if (equipId) {
             const { data: lastHist } = await supabase
@@ -349,6 +349,21 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                 activeUser = lastHist.user;
                 activeFrom = lastHist.from || "Físico";
             }
+        }
+
+        if (!activeUser) {
+            const { data: fallbackUser } = await supabase
+                .from("usuarios")
+                .select("user")
+                .limit(1)
+                .maybeSingle();
+            
+            activeUser = fallbackUser?.user || null;
+        }
+
+        if (!activeUser) {
+            console.error("[SAVE DATA] Erro crítico: Nenhum usuário encontrado na tabela 'usuarios' para associar ao histórico.");
+            return;
         }
 
         const novosHistoricos = [];
@@ -393,7 +408,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             await Promise.all(
                 Array.from({ length: 10 }).map(async (_, i) => {
                     const numeroChave = i + 1;
-                    const chaveName = metadados[i]; // "l1", "l2", etc.
+                    const chaveName = metadados[i];
 
                     const { data: lastKeyAction } = await supabase
                         .from("historico")
