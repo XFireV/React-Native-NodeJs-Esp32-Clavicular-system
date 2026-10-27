@@ -173,7 +173,6 @@ app.post("/update", async (req, rep) => {
     }
 })
 
-// ROTA: Ativar e Salvar no Histórico (Abertura do Sistema)
 app.post("/push", async (req, rep) => {
     const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
     const raw = req.body?.pass
@@ -182,37 +181,25 @@ app.post("/push", async (req, rep) => {
     const from = req.body?.from
 
     try {
-        if (user != null && from != null) {
-            const { data, error } = await supabase
-                .from("usuarios")
-                .select("userequips(equipid)")
-                .eq("user", user)
-                .single()
+        if (user != null || from != null) {
+            dados.user = user || "Usuário App";
+            dados.from = from || "App";
 
-            if (error) throw error
-
-            let dataUs = null;
-            if (data?.userequips) {
-                dataUs = Array.isArray(data.userequips) ? data.userequips[0]?.equipid : data.userequips.equipid;
-            }
-
-            if (dataUs) {
-                dados.equipe = dataUs
-                dados.user = user
-                dados.from = "Facial"
-            } else {
-                return rep.status(404).send({ error: "Usuário sem equipe vinculada" })
-            }
-
-            const { data: equipD, error: equipE } = await supabase
+            const { data: equipData, error: equipErr } = await supabase
                 .from("equipes")
-                .select("opentime")
-                .eq("id", dados.equipe)
-                .single()
+                .select("id, opentime, ip")
+                .ilike("mac", mac)
+                .maybeSingle();
 
-            if (!equipE && equipD) {
-                dados.opentime = equipD.opentime
+            if (equipErr || !equipData) {
+                app.log.error("Equipamento/MAC não encontrado para a requisição do App/Facial")
+                return rep.status(404).send({ error: "Equipamento não encontrado" });
             }
+
+            dados.equipe = equipData.id;
+            dados.opentime = equipData.opentime || 10000;
+            dados.ip = equipData.ip;
+
         } else {
             const senha = typeof raw === 'string' ? Number(raw) : raw
 
@@ -287,6 +274,7 @@ app.post("/push", async (req, rep) => {
 
         if (!dados.skipHistorico) {
             await pushAtive(mac)
+            
             const { error: erroInsert } = await supabase
                 .from("historico")
                 .insert([{
@@ -299,7 +287,7 @@ app.post("/push", async (req, rep) => {
             if (erroInsert) throw erroInsert
 
             return rep.send({
-                confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo Node!",
+                confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
                 opentime: dados.opentime,
                 ip: dados.ip
             })
