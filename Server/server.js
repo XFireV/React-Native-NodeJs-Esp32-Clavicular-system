@@ -509,7 +509,7 @@ const removeConfirm = async (mac, userAppReal) => {
 
         const { data, error } = await supabase
             .from("IPs")
-            .update({ 'confirm': false, 'user_app': null }) 
+            .update({ 'confirm': false}) 
             .eq("mac", mac)
             .eq('confirm', true)
             .select()
