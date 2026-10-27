@@ -322,80 +322,85 @@ const pushAtive = async (mac) => {
     }
 }
 
+
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
-    if (!ldr || !Array.isArray(ldr) || !mac) {
-        console.log("[SAVE DATA] Dados ausentes/inválidos");
+    if (!Array.isArray(ldr) || ldr.length < 10 || !mac) {
+        console.log("[SAVE DATA] Dados ausentes ou inválidos");
         return;
     }
 
     try {
-        const { data: equipData } = await supabase
+        const { data: equipData, error: equipError } = await supabase
             .from("equipes")
             .select("id")
             .ilike("mac", mac)
             .maybeSingle();
 
-        const equipId = equipData?.id || null;
-        if (!equipId) return;
+        if (equipError) throw equipError;
 
-        let globalActiveUser = null;
-        let globalActiveFrom = "Físico";
+        const equipId = equipData?.id;
 
-        const { data: lastHist } = await supabase
-            .from("historico")
-            .select("user, from")
-            .eq("equipid", equipId)
-            .order("id", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        if (lastHist?.user) {
-            globalActiveUser = lastHist.user;
-            globalActiveFrom = lastHist.from || "Físico";
+        if (!equipId) {
+            console.log("[SAVE DATA] Equipamento não encontrado");
+            return;
         }
 
-        if (!globalActiveUser) {
-            const { data: fallbackUser } = await supabase
-                .from("usuarios")
-                .select("user")
-                .limit(1)
-                .maybeSingle();
-            globalActiveUser = fallbackUser?.user || "Administrador";
-        }
-
-        const novosHistoricos = [];
-        let newState = {};
-
-        for (let i = 0; i < 10; i++) {
-            const numeroChave = i + 1;
-            const chaveName = metadados[i];
-            const acao = ldrUse[i]; 
-
-            const { data: lastKeyAction } = await supabase
+        const { data: lastActivation, error: activationError } =
+            await supabase
                 .from("historico")
-                .select("descricao, user")
+                .select("user, from")
                 .eq("equipid", equipId)
-                .ilike("descricao", `Chave ${numeroChave} %`)
+                .eq("descricao", "Sistema Ativado")
                 .order("id", { ascending: false })
                 .limit(1)
                 .maybeSingle();
 
-            let estadoAnteriorNoBanco = true; 
-            let ultimoDonoDaChave = globalActiveUser;
+        if (activationError) throw activationError;
+
+        const globalActiveUser = lastActivation?.user || "Administrador";
+        const globalActiveFrom = lastActivation?.from || "Físico";
+
+        const novosHistoricos = [];
+        const newState = {};
+
+        for (let i = 0; i < 10; i++) {
+            const numeroChave = i + 1;
+            const chaveName = metadados[i];
+
+            const { data: lastKeyAction, error: keyError } =
+                await supabase
+                    .from("historico")
+                    .select("descricao, user, from")
+                    .eq("equipid", equipId)
+                    .ilike("descricao", `Chave ${numeroChave} %`)
+                    .order("id", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+            if (keyError) throw keyError;
+
+            let estadoAnteriorNoBanco = true;
+            let ultimoDonoDaChave = null;
 
             if (lastKeyAction) {
                 if (lastKeyAction.descricao.endsWith("Retirada")) {
-                    estadoAnteriorNoBanco = false; 
-                    ultimoDonoDaChave = lastKeyAction.user; 
-                } else if (lastKeyAction.descricao.endsWith("Devolvida")) {
-                    estadoAnteriorNoBanco = true; 
+                    estadoAnteriorNoBanco = false;
+                    ultimoDonoDaChave = lastKeyAction.user;
+                } else if (
+                    lastKeyAction.descricao.endsWith("Devolvida")
+                ) {
+                    estadoAnteriorNoBanco = true;
                 }
             }
 
-            const estadoAtualFisico = ldr[i]; 
+            const estadoAtualFisico = ldr[i];
+
             newState[chaveName] = estadoAtualFisico;
 
-            if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
+            if (
+                estadoAtualFisico === false &&
+                estadoAnteriorNoBanco === true
+            ) {
                 novosHistoricos.push({
                     user: globalActiveUser,
                     from: globalActiveFrom,
@@ -403,9 +408,13 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                     equipid: equipId
                 });
             }
-            else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
+
+            else if (
+                estadoAtualFisico === true &&
+                estadoAnteriorNoBanco === false
+            ) {
                 novosHistoricos.push({
-                    user: ultimoDonoDaChave, 
+                    user: ultimoDonoDaChave || globalActiveUser,
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Devolvida`,
                     equipid: equipId
@@ -414,33 +423,42 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         }
 
         if (novosHistoricos.length > 0) {
-            const { error: errHist } = await supabase
+            const { error: histError } = await supabase
                 .from("historico")
                 .insert(novosHistoricos);
 
-            if (errHist) {
-                console.error("[SAVE DATA] Erro ao salvar novo histórico:", errHist.message);
-            } else {
-                console.log(`[SAVE DATA] ${novosHistoricos.length} mudança(s) real(is) gravada(s) no histórico.`);
-            }
+            if (histError) throw histError;
+
+            console.log(
+                `[SAVE DATA] ${novosHistoricos.length} mudança(s) registrada(s). ` +
+                `Usuário da última ativação: ${globalActiveUser}`
+            );
         }
 
-        const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
+        const rawData = ldr.map((val, index) => ({
+            [metadados[index]]: val
+        }));
+
         const dataReal = Object.assign({}, ...rawData);
 
         const { error: updateError } = await supabase
             .from("IPs")
-            .update({ "ldr": dataReal, "ip": ip, "states": newState })
+            .update({
+                ldr: dataReal,
+                ip: ip,
+                states: newState
+            })
             .ilike("mac", mac);
 
         if (updateError) throw updateError;
-        
-        console.log("[SAVE DATA] IPs atualizado com sucesso.");
+
+        console.log("[SAVE DATA] Estados dos LDRs atualizados.");
 
     } catch (error) {
-        console.error("Exceção saveData:", error);
+        console.error("[SAVE DATA] Erro:", error.message);
     }
-}
+};
+
 
 supabase
     .channel("db-changes")
