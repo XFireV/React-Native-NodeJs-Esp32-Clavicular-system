@@ -179,6 +179,7 @@ app.post("/push", async (req, rep) => {
     const mac = req.body?.mac
     const user = req.body?.user
     const from = req.body?.from
+    console.log("[USUARIO]" user)
 
     try {
         if (user != null || from != null) {
