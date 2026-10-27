@@ -336,63 +336,83 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             .maybeSingle();
 
         const equipId = equipData?.id || null;
-        let activeUser = null;
-        let activeFrom = "Físico";
+        if (!equipId) return;
 
-        if (equipId) {
-            const { data: lastHist } = await supabase
-                .from("historico")
-                .select("user, from")
-                .eq("equipid", equipId)
-                .order("id", { ascending: false })
-                .limit(1)
-                .maybeSingle();
+        let globalActiveUser = null;
+        let globalActiveFrom = "Físico";
 
-            if (lastHist?.user) {
-                activeUser = lastHist.user;
-                activeFrom = lastHist.from || "Físico";
-            }
+        const { data: lastHist } = await supabase
+            .from("historico")
+            .select("user, from")
+            .eq("equipid", equipId)
+            .order("id", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (lastHist?.user) {
+            globalActiveUser = lastHist.user;
+            globalActiveFrom = lastHist.from || "Físico";
         }
 
-        if (!activeUser) {
+        if (!globalActiveUser) {
             const { data: fallbackUser } = await supabase
                 .from("usuarios")
                 .select("user")
                 .limit(1)
                 .maybeSingle();
-            
-            activeUser = fallbackUser?.user || null;
-        }
-
-        if (!activeUser) {
-            console.error("[SAVE DATA] Erro crítico: Nenhum usuário encontrado na tabela 'usuarios' para associar ao histórico.");
-            return;
+            globalActiveUser = fallbackUser?.user || "Administrador";
         }
 
         const novosHistoricos = [];
+        let newState = {};
 
-        if (Array.isArray(ldrUse)) {
-            ldrUse.forEach((acao, index) => {
-                const numeroChave = index + 1;
+        for (let i = 0; i < 10; i++) {
+            const numeroChave = i + 1;
+            const chaveName = metadados[i];
+            const acao = ldrUse[i]; 
 
-                if (acao === false) { 
-                    novosHistoricos.push({
-                        user: activeUser,
-                        from: activeFrom,
-                        descricao: `Chave ${numeroChave} Retirada`,
-                        equipid: equipId
-                    });
-                } else if (acao === true) { 
-                    novosHistoricos.push({
-                        user: activeUser,
-                        from: activeFrom,
-                        descricao: `Chave ${numeroChave} Devolvida`,
-                        equipid: equipId
-                    });
+            const { data: lastKeyAction } = await supabase
+                .from("historico")
+                .select("descricao, user")
+                .eq("equipid", equipId)
+                .ilike("descricao", `Chave ${numeroChave} %`)
+                .order("id", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            let estadoAnteriorNoBanco = true; 
+            let ultimoDonoDaChave = globalActiveUser;
+
+            if (lastKeyAction) {
+                if (lastKeyAction.descricao.endsWith("Retirada")) {
+                    estadoAnteriorNoBanco = false; 
+                    ultimoDonoDaChave = lastKeyAction.user; 
+                } else if (lastKeyAction.descricao.endsWith("Devolvida")) {
+                    estadoAnteriorNoBanco = true; 
                 }
-            });
+            }
+
+            const estadoAtualFisico = ldr[i]; 
+            newState[chaveName] = estadoAtualFisico;
+
+            if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
+                novosHistoricos.push({
+                    user: globalActiveUser,
+                    from: globalActiveFrom,
+                    descricao: `Chave ${numeroChave} Retirada`,
+                    equipid: equipId
+                });
+            }
+            else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
+                novosHistoricos.push({
+                    user: ultimoDonoDaChave, 
+                    from: globalActiveFrom,
+                    descricao: `Chave ${numeroChave} Devolvida`,
+                    equipid: equipId
+                });
+            }
         }
-        
+
         if (novosHistoricos.length > 0) {
             const { error: errHist } = await supabase
                 .from("historico")
@@ -401,37 +421,8 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             if (errHist) {
                 console.error("[SAVE DATA] Erro ao salvar novo histórico:", errHist.message);
             } else {
-                console.log(`[SAVE DATA] ${novosHistoricos.length} ação(ões) gravada(s) no histórico para ${activeUser}.`);
+                console.log(`[SAVE DATA] ${novosHistoricos.length} mudança(s) real(is) gravada(s) no histórico.`);
             }
-        }
-
-        let newState = {};
-
-        if (equipId) {
-            await Promise.all(
-                Array.from({ length: 10 }).map(async (_, i) => {
-                    const numeroChave = i + 1;
-                    const chaveName = metadados[i];
-
-                    const { data: lastKeyAction } = await supabase
-                        .from("historico")
-                        .select("descricao")
-                        .eq("equipid", equipId)
-                        .ilike("descricao", `Chave ${numeroChave} %`)
-                        .order("id", { ascending: false })
-                        .limit(1)
-                        .maybeSingle();
-
-                    if (lastKeyAction) {
-                        if (lastKeyAction.descricao.endsWith("Retirada")) {
-                            newState[chaveName] = false;
-                        } 
-                        else if (lastKeyAction.descricao.endsWith("Devolvida")) {
-                            newState[chaveName] = true; 
-                        }
-                    }
-                })
-            );
         }
 
         const rawData = ldr.map((val, index) => ({ [metadados[index]]: val }));
@@ -444,7 +435,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
         if (updateError) throw updateError;
         
-        console.log("[SAVE DATA] Atualizado no banco com sucesso. Status atualizado por chave:", newState);
+        console.log("[SAVE DATA] IPs atualizado com sucesso.");
 
     } catch (error) {
         console.error("Exceção saveData:", error);
