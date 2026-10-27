@@ -384,16 +384,17 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             ldrUse.forEach((acao, index) => {
                 const numeroChave = index + 1;
 
-                if (acao === "Retirou") {
-                    currentState[`l${index}`] = "Retirou";
+                if (acao === false) { 
+                    currentState[`l${index}`] = false; 
                     retiradas.push({
                         user: activeUser,
                         from: activeFrom,
                         descricao: `Chave ${numeroChave} Retirada`,
                         equipid: equipId
                     });
-                } else if (acao === "Devolveu") {
-                    delete currentState[`l${index}`];
+                
+                } else if (acao === true) { 
+                    delete currentState[`l${index}`]; 
                     devolucoes.push({
                         user: activeUser,
                         from: activeFrom,
@@ -403,7 +404,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                 }
             });
         }
-
+        
         if (retiradas.length > 0) {
             const { error: errRetirada } = await supabase
                 .from("historico")
