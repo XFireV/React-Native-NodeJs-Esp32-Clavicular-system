@@ -491,3 +491,4 @@ async function handleConfirm(openT) {
         clearTimeout(timeout)
     }
 }
+starting()
