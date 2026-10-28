@@ -189,7 +189,7 @@ app.post("/push", async (req, rep) => {
         
             const { data: equipData, error: equipErr } = await supabase
                 .from("equipes")
-                .select("id, opentime, ip")
+                .select("id, opentime")
                 .ilike("mac", `%${macClean}%`)
                 .maybeSingle();
         
@@ -200,7 +200,6 @@ app.post("/push", async (req, rep) => {
         
             dados.equipe = equipData.id;
             dados.opentime = equipData.opentime || 10000;
-            dados.ip = equipData.ip;
 
         } else {
             const senha = typeof raw === 'string' ? Number(raw) : raw
@@ -242,7 +241,7 @@ app.post("/push", async (req, rep) => {
 
                             const { data: dataEq, error: errorEq } = await supabase
                                 .from("equipes")
-                                .select("id, opentime, ip")
+                                .select("id, opentime")
                                 .ilike("mac", mac)
                                 .maybeSingle()
 
@@ -251,7 +250,6 @@ app.post("/push", async (req, rep) => {
                                 dados.skipHistorico = true
                             } else {
                                 dados.equipe = dataEq.id
-                                dados.ip = dataEq.ip
                                 dados.from = "Físico"
                                 if (dataEq.opentime != null) {
                                     dados.opentime = dataEq.opentime
@@ -295,14 +293,12 @@ app.post("/push", async (req, rep) => {
             return rep.send({
                 confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
                 opentime: dados.opentime,
-                ip: dados.ip
             })
         } else {
             app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
             return rep.send({
                 confirm: "Sistema ativado com sucesso pelo Node (Admin)!",
                 opentime: dados.opentime,
-                ip: dados.ip
             })
         }
     } catch (error) {
