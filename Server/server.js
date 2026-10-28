@@ -184,18 +184,20 @@ app.post("/push", async (req, rep) => {
         if (user != null || from != null) {
             dados.user = user || "Usuário App";
             dados.from = from || "App";
-
+        
+            const macClean = String(mac || "").trim().toUpperCase();
+        
             const { data: equipData, error: equipErr } = await supabase
                 .from("equipes")
                 .select("id, opentime, ip")
-                .ilike("mac", mac)
+                .ilike("mac", `%${macClean}%`)
                 .maybeSingle();
-
+        
             if (equipErr || !equipData) {
-                app.log.error("Equipamento/MAC não encontrado para a requisição do App/Facial")
+                app.log.error(`Equipamento/MAC '${macClean}' não encontrado na tabela 'equipes'`);
                 return rep.status(404).send({ error: "Equipamento não encontrado" });
             }
-
+        
             dados.equipe = equipData.id;
             dados.opentime = equipData.opentime || 10000;
             dados.ip = equipData.ip;
