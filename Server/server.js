@@ -372,7 +372,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             const { data: lastKeyAction, error: keyError } =
                 await supabase
                     .from("historico")
-                    .select("descricao, user, from")
+                    .select("descricao")
                     .eq("equipid", equipId)
                     .ilike("descricao", `Chave ${numeroChave} %`)
                     .order("id", { ascending: false })
@@ -381,16 +381,12 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             if (keyError) throw keyError;
 
-            let estadoAnteriorNoBanco = true;
-            let ultimoDonoDaChave = null;
+            let estadoAnteriorNoBanco = true; // true = devolvida/no cofre
 
             if (lastKeyAction) {
                 if (lastKeyAction.descricao.endsWith("Retirada")) {
                     estadoAnteriorNoBanco = false;
-                    ultimoDonoDaChave = lastKeyAction.user;
-                } else if (
-                    lastKeyAction.descricao.endsWith("Devolvida")
-                ) {
+                } else if (lastKeyAction.descricao.endsWith("Devolvida")) {
                     estadoAnteriorNoBanco = true;
                 }
             }
@@ -399,24 +395,17 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             newState[chaveName] = estadoAtualFisico;
 
-            if (
-                estadoAtualFisico === false &&
-                estadoAnteriorNoBanco === true
-            ) {
+            if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
                 novosHistoricos.push({
-                    user: globalActiveUser,
+                    user: globalActiveUser, // <-- Quem ativou o sistema
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Retirada`,
                     equipid: equipId
                 });
             }
-
-            else if (
-                estadoAtualFisico === true &&
-                estadoAnteriorNoBanco === false
-            ) {
+            else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
                 novosHistoricos.push({
-                    user: ultimoDonoDaChave || globalActiveUser,
+                    user: globalActiveUser, // <-- Quem ativou o sistema (Lázaro, não a Marlize)
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Devolvida`,
                     equipid: equipId
@@ -433,7 +422,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             console.log(
                 `[SAVE DATA] ${novosHistoricos.length} mudança(s) registrada(s). ` +
-                `Usuário da última ativação: ${globalActiveUser}`
+                `Usuário responsável: ${globalActiveUser}`
             );
         }
 
@@ -460,7 +449,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
         console.error("[SAVE DATA] Erro:", error.message);
     }
 };
-
 
 supabase
     .channel("db-changes")
