@@ -7,9 +7,13 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <ESP32Servo.h>
+#include <Preferences.h>
 
 #define serverUrl "https://node-clavicular-system.onrender.com/"
 #define localHostUrl "http://192.168.0.113:3333/home"
+
+Preferences preferences;
+String deviceSecret = "Secret_key";
 
 #define s0 18
 #define s1 19
@@ -114,125 +118,79 @@ private:
   bool acess;
   bool editing;
 
-  void depuratePass() {
-    int passResult = receivePasses();
-    if (passResult == 0 || passResult == 1) {
-      acess = true;
-      editing = false;
-      atualScreen = ATIVE;
-      updateLcd();
-    } else {
-      senhaUser = "";
-      updateLcd();
+  void verifyKeypadPass() {
+    if (deviceSecret == "") {
+      lcd.clear();
+      lcd.print(clearSystem(16, "Nao Pareado!"));
+      delay(2000);
+      resetToHome();
+      return;
     }
-  }
-
-  void pushSystem() {
     if (WiFi.status() == WL_CONNECTED) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(clearSystem(16, "Verificando..."));
+
       WiFiClientSecure client;
       client.setCACert(root_ca);
 
       JsonDocument doc;
-      JsonDocument jsonPayload;
       String payload;
 
-      doc["pass"] = senhaUser;
+      // 1. Envia a senha como NUMERO, o MAC e o SECRET
+      doc["pass"] = senhaUser.toInt(); 
       doc["mac"] = WiFi.macAddress();
+      doc["device_secret"] = deviceSecret;
 
       serializeJson(doc, payload);
 
       HTTPClient http;
-      http.begin(client, String(inUseUrl) + "push");
-      http.setTimeout(5000);
+      // 2. Rota no Node.js que fará a validação do passe de 8 dígitos
+      http.begin(client, String(inUseUrl) + "keypad-auth"); 
+      http.setTimeout(8000);
       http.addHeader("Content-Type", "application/json");
 
       int responseCode = http.POST(payload);
 
-      if (responseCode > 0) {
-        Serial.println("Código HTTP: ");
-        Serial.println(responseCode);
-
+      if (responseCode == 200) {
         String received = http.getString();
+        JsonDocument jsonPayload;
         DeserializationError error = deserializeJson(jsonPayload, received);
 
-        if (!error) {
-          Serial.print("confirmação: ");
-          Serial.println(jsonPayload["confirm"].as<String>());
-
-          timeout = jsonPayload["opentime"];
+        // 3. Se o Node.js validou o device_secret e encontrou o passe no banco
+        if (!error && jsonPayload["granted"] == true) {
+          timeout = jsonPayload["opentime"] | 10000;
           systemOn = true;
           updatedLdr = true;
           startTimeout = millis();
-
-          Serial.println(timeout);
           digitalWrite(15, 1);
-        } else {
-          Serial.println(responseCode);
+          
+          lcd.setCursor(0, 0);
+          lcd.print(clearSystem(16, "Acesso Liberado!"));
+          
+          String nomeUser = jsonPayload["user"] | "Usuario";
+          lcd.setCursor(0, 1);
+          lcd.print(clearSystem(16, "Ola, " + nomeUser));
+          delay(2000);
+
+          liberarViaFacial(); // Reaproveitamos para resetar a tela e variáveis
           http.end();
           return;
         }
-        http.end();
-      } else {
-        Serial.println("Wifi desconectado, ou senha/ssid errados");
-        return;
       }
-    }
-  }
-
-  int receivePasses() {
-    if (WiFi.status() == WL_CONNECTED) {
-      WiFiClientSecure client;
-      client.setCACert(root_ca);
-
-      JsonDocument doc;
-      JsonDocument jsonPayload;
-      String payload;
-
-      doc["pass"] = senhaUser;
-      doc["mac"] = WiFi.macAddress();
-
-      serializeJson(doc, payload);
-
-      HTTPClient http;
-      http.begin(client, String(inUseUrl) + "pass");
-      http.setTimeout(5000);
-      http.addHeader("Content-Type", "application/json");
-
-      int responseCode = http.POST(payload);
-
-      if (responseCode > 0) {
-        Serial.println("Código HTTP: ");
-        Serial.println(responseCode);
-
-        String received = http.getString();
-        DeserializationError error = deserializeJson(jsonPayload, received);
-
-        if (!error) {
-          if (jsonPayload.containsKey("senhaAdm") && jsonPayload.containsKey("senhaUser")) {
-            String acessAdm = jsonPayload["senhaAdm"];
-            String acessUser = jsonPayload["senhaUser"];
-            if (acessAdm == senhaUser) {
-              return 0;
-            } else if (acessUser == senhaUser) {
-              return 1;
-            } else {
-              return 2;
-            }
-          }
-        } else {
-          Serial.println(error.c_str());
-          http.end();
-          return 2;
-        }
-        http.end();
-      } else {
-        Serial.println(responseCode);
-        http.end();
-        return 2;
-      }
+      
+      // Se não autorizou ou deu erro de conexão
+      lcd.setCursor(0, 0);
+      lcd.print(clearSystem(16, "Acesso Negado!"));
+      delay(2000);
+      resetToHome();
+      http.end();
     } else {
-      Serial.println("Wifi desconectado, ou senha/ssid errados");
-      return 2;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(clearSystem(16, "Sem Conexao!"));
+      delay(2000);
+      resetToHome();
     }
   }
 
@@ -298,13 +256,6 @@ private:
   void digits(char car, bool tipo) {
     String& sketchPass = tipo == true ? sketchAdminPass : senhaUser;
     switch (car) {
-      case 'D':
-        if(!inWifi) {
-          atualScreen = WIFI;
-          sketchPass = "";
-          editing = false;
-          pushWifi();
-        } else {}
       case '#':
         if (sketchPass.length() > 0) {
           sketchPass.remove(sketchPass.length() - 1);
@@ -314,10 +265,8 @@ private:
         if (sketchPass.length() == 8) {
           if (tipo == 1) {
             updateAdminPass();
-          } else if (tipo == 2) {
-            insertWifi(); 
           } else {
-            depuratePass();
+            verifyKeypadPass();
           }
         } else {
           sketchPass = "";
@@ -327,8 +276,7 @@ private:
         if(!inWifi){
           if (sketchPass.length() < 8) {
             sketchPass += car;
-          } else {sketchPass +=
-            car;}
+          }
           break;
         }
     }
@@ -500,6 +448,7 @@ void enviarPost(bool listaT[], int listaV[], String listaUse[]) {
   payloadDoc["LEDState"] = digitalRead(ledPin);
   payloadDoc["mac"] = WiFi.macAddress();
   payloadDoc["ip"] = WiFi.localIP().toString();
+  payloadDoc["device_secret"] = deviceSecret;
 
   String JsonPayload;
   serializeJson(payloadDoc, JsonPayload);
@@ -568,6 +517,33 @@ void systemLdr() {
 
     int leitura = analogRead(mux);
     ldrUpdateSys[i] = leitura;
+  }
+}
+
+void handleToken() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Payload ausente\"}");
+    return;
+  }
+
+  String payload = server.arg("plain");
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (!error && doc.containsKey("secret")) {
+    deviceSecret = doc["secret"].as<String>();
+
+    preferences.begin("config", false);
+    preferences.putString("device_secret", deviceSecret);
+    preferences.end();
+
+    Serial.println("Token pareado e salvo com sucesso!");
+    
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"status\":\"ok\"}");
+  } else {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"JSON invalido\"}");
   }
 }
 
@@ -688,6 +664,7 @@ bool pushSystemFacial(String nome) {
   doc["user"] = nome;
   doc["mac"] = WiFi.macAddress();
   doc["from"] = "Facial";
+  payloadDoc["device_secret"] = deviceSecret;
 
   serializeJson(doc, payload);
 
@@ -726,6 +703,7 @@ void registrarIPInicial() {
     JsonDocument doc;
     doc["mac"] = WiFi.macAddress();
     doc["ip"] = WiFi.localIP().toString();
+    payloadDoc["device_secret"] = deviceSecret;
 
     String payload;
     serializeJson(doc, payload);
@@ -753,6 +731,10 @@ void registrarIPInicial() {
 void setup() {
   Serial.begin(115200);
   delay(2000);
+
+  preferences.begin("config", true); 
+  deviceSecret = preferences.getString("device_secret", "");
+  preferences.end();
 
   display.startLcd();
   display.updateLcd();
@@ -784,6 +766,7 @@ void setup() {
   registrarIPInicial();
 
   server.on("/led", HTTP_POST, handleLed);
+  server.on("/token", HTTP_POST, handleToken);
   server.on("/face", HTTP_POST, putFace);
   server.on("/parear", parearNovo);
   server.begin();
