@@ -664,8 +664,7 @@ bool pushSystemFacial(String nome) {
   doc["user"] = nome;
   doc["mac"] = WiFi.macAddress();
   doc["from"] = "Facial";
-  payloadDoc["device_secret"] = deviceSecret;
-
+  doc["device_secret"] = deviceSecret;
   serializeJson(doc, payload);
 
   HTTPClient http;
@@ -703,8 +702,8 @@ void registrarIPInicial() {
     JsonDocument doc;
     doc["mac"] = WiFi.macAddress();
     doc["ip"] = WiFi.localIP().toString();
-    payloadDoc["device_secret"] = deviceSecret;
-
+    doc["device_secret"] = deviceSecret;
+    
     String payload;
     serializeJson(doc, payload);
 
