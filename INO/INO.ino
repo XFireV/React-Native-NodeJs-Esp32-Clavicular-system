@@ -158,7 +158,7 @@ private:
         DeserializationError error = deserializeJson(jsonPayload, received);
 
         // 3. Se o Node.js validou o device_secret e encontrou o passe no banco
-        if (!error && jsonPayload["granted"] == true) {
+        if (!error && jsonPayload["confirm"] == true) {
           timeout = jsonPayload["opentime"] | 10000;
           systemOn = true;
           updatedLdr = true;
