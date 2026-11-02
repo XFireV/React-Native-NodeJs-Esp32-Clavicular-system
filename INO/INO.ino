@@ -146,7 +146,7 @@ private:
 
       HTTPClient http;
       // 2. Rota no Node.js que fará a validação do passe de 8 dígitos
-      http.begin(client, String(inUseUrl) + "keypad-auth"); 
+      http.begin(client, String(inUseUrl) + "push"); 
       http.setTimeout(8000);
       http.addHeader("Content-Type", "application/json");
 
