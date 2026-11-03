@@ -400,7 +400,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                 novosHistoricos.push({
                     user: globalActiveUser, // <-- Quem ativou o sistema
                     from: globalActiveFrom,
-                    descricao: `Chave ${numeroChave} Retirada`,
+                    descricao: `Chave ${numeroChave} Devolvida`,
                     equipid: equipId
                 });
             }
@@ -408,7 +408,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                 novosHistoricos.push({
                     user: globalActiveUser, // <-- Quem ativou o sistema (Lázaro, não a Marlize)
                     from: globalActiveFrom,
-                    descricao: `Chave ${numeroChave} Devolvida`,
+                    descricao: `Chave ${numeroChave} Retirada`,
                     equipid: equipId
                 });
             }
