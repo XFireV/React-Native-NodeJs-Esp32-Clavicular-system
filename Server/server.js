@@ -78,10 +78,15 @@ app.post("/register-ip", async (req, rep) => {
         }
 
         if (registroExistente) {
-            console.log(`[REGISTRO] MAC ${mac} já cadastrado no banco. Nenhuma ação necessária.`)
+            await supabase
+                .from("IPs")
+                .update({ ip: ip })
+                .eq("mac", mac);
+
+            console.log(`[REGISTRO] MAC ${mac} já cadastrado. IP atualizado para: ${ip}`)
             return rep.status(200).send({
                 success: true,
-                message: "Dispositivo já cadastrado"
+                message: "Dispositivo já cadastrado e IP atualizado"
             })
         }
 
