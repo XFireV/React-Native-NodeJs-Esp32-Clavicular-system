@@ -186,11 +186,11 @@ app.post("/push", async (req, rep) => {
     const from = req.body?.from
     
     try {
+        const macClean = String(mac || "").trim().toUpperCase();
+
         if (user != null || from != null) {
             dados.user = user || "Usuário App";
             dados.from = from || "App";
-        
-            const macClean = String(mac || "").trim().toUpperCase();
         
             const { data: equipData, error: equipErr } = await supabase
                 .from("equipes")
@@ -228,7 +228,7 @@ app.post("/push", async (req, rep) => {
                         const { error: errorAdm, data: dataAdm } = await supabase
                             .from("IPs")
                             .select("id") 
-                            .ilike("mac", mac)
+                            .ilike("mac", macClean)
                             .eq("passAdmin", senha)
                             .single()
 
@@ -247,7 +247,7 @@ app.post("/push", async (req, rep) => {
                             const { data: dataEq, error: errorEq } = await supabase
                                 .from("equipes")
                                 .select("id, opentime")
-                                .ilike("mac", mac)
+                                .ilike("mac", macClean)
                                 .maybeSingle()
 
                             if (errorEq || !dataEq) {
@@ -278,7 +278,7 @@ app.post("/push", async (req, rep) => {
         }
 
         if (!dados.skipHistorico) {
-            await pushAtive(mac || req.body?.mac);
+            await pushAtive(macClean);
             
             const { error: erroInsert } = await supabase
                 .from("historico")
@@ -294,18 +294,16 @@ app.post("/push", async (req, rep) => {
                 throw erroInsert;
             }
 
-            // Se veio do App ou Facial, notifica o ESP32 ativamente via Ngrok
             if (dados.from === "Facial" || dados.from === "App") {
                 handleConfirm(dados.opentime);
             }
 
             return rep.send({
                 confirm: true,
-                message: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
+                message: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso!",
                 opentime: dados.opentime,
             });
         } else {
-            
             app.log.info("Ativação de Admin sem equipe: Histórico ignorado.");
             return rep.send({
                 confirm: true,
@@ -313,13 +311,7 @@ app.post("/push", async (req, rep) => {
                 opentime: dados.opentime,
             });
         }
-        } else {
-            app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
-            return rep.send({
-                confirm: "Sistema ativado com sucesso pelo Node (Admin)!",
-                opentime: dados.opentime,
-            })
-        }
+
     } catch (error) {
         app.log.error("Erro ao registrar histórico:", error?.message || error)
         return rep.status(500).send({ error: "Falha ao salvar historico" })
@@ -338,7 +330,6 @@ const pushAtive = async (mac) => {
         return ""
     }
 }
-
 
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!Array.isArray(ldr) || ldr.length < 10 || !mac) {
@@ -412,7 +403,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
                 novosHistoricos.push({
-                    user: globalActiveUser, // <-- Quem ativou o sistema
+                    user: globalActiveUser,
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Devolvida`,
                     equipid: equipId
@@ -420,7 +411,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             }
             else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
                 novosHistoricos.push({
-                    user: globalActiveUser, // <-- Quem ativou o sistema (Lázaro, não a Marlize)
+                    user: globalActiveUser,
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Retirada`,
                     equipid: equipId
