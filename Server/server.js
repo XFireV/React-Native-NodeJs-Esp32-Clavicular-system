@@ -278,7 +278,7 @@ app.post("/push", async (req, rep) => {
         }
 
         if (!dados.skipHistorico) {
-            await pushAtive(mac)
+            await pushAtive(mac || req.body?.mac);
             
             const { error: erroInsert } = await supabase
                 .from("historico")
@@ -287,18 +287,32 @@ app.post("/push", async (req, rep) => {
                     from: dados.from,
                     descricao: "Sistema Ativado",
                     equipid: dados.equipe
-                }])
+                }]);
 
-            if (erroInsert) throw erroInsert
+            if (erroInsert) {
+                app.log.error("Erro ao inserir histórico:", erroInsert.message);
+                throw erroInsert;
+            }
 
+            // Se veio do App ou Facial, notifica o ESP32 ativamente via Ngrok
             if (dados.from === "Facial" || dados.from === "App") {
                 handleConfirm(dados.opentime);
             }
 
             return rep.send({
-                confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
+                confirm: true,
+                message: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
                 opentime: dados.opentime,
-            })
+            });
+        } else {
+            
+            app.log.info("Ativação de Admin sem equipe: Histórico ignorado.");
+            return rep.send({
+                confirm: true,
+                message: "Sistema ativado com sucesso pelo Node (Admin)!",
+                opentime: dados.opentime,
+            });
+        }
         } else {
             app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
             return rep.send({
