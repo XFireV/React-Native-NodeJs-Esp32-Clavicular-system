@@ -35,22 +35,6 @@ const pushAdmin = async (mac) => {
     }
 }
 
-// Funcao auxiliar de validacao de autenticidade do hardware
-const validateDevice = async (mac, secret) => {
-    if (!mac) return false;
-    const { data } = await supabase
-        .from("IPs")
-        .select("device_secret")
-        .ilike("mac", mac)
-        .maybeSingle();
-    
-    // Se o banco tiver secret cadastrado, obriga a bater com o enviado
-    if (data?.device_secret) {
-        return data.device_secret === secret;
-    }
-    return true; // Se ainda nao pareou secret, permite transicao inicial
-}
-
 // ROTA: Leitura periódica dos LDRs
 app.post("/home", async (req, rep) => {
     try {
@@ -59,7 +43,6 @@ app.post("/home", async (req, rep) => {
         const mac = req.body?.mac
         const ip = req.body?.ip || req.ip
         const uses = req.body?.LDRUse
-        const device_secret = req.body?.device_secret
 
         if (dataLdr && mac) {
             await saveData(dataLdr, valuesLdr, mac, ip, uses)
@@ -76,7 +59,7 @@ app.post("/home", async (req, rep) => {
 
 // ROTA: Registro inicial do IP
 app.post("/register-ip", async (req, rep) => {
-    const { mac, ip, device_secret } = req.body || {}
+    const { mac, ip } = req.body || {}
 
     if (!mac || !ip) {
         return rep.status(400).send({ error: "MAC e IP são obrigatórios" })
@@ -95,10 +78,7 @@ app.post("/register-ip", async (req, rep) => {
         }
 
         if (registroExistente) {
-             if (device_secret) {
-                await supabase.from("IPs").update({ ip, device_secret }).eq("mac", mac)
-            }
-            console.log(`[REGISTRO] MAC ${mac} já cadastrado no banco. Atualizado se necessário.`)
+            console.log(`[REGISTRO] MAC ${mac} já cadastrado no banco. Nenhuma ação necessária.`)
             return rep.status(200).send({
                 success: true,
                 message: "Dispositivo já cadastrado"
@@ -107,7 +87,7 @@ app.post("/register-ip", async (req, rep) => {
 
         const { data, error: erroInsercao } = await supabase
             .from("IPs")
-            .insert([{ mac, ip, device_secret }])
+            .insert([{ mac: mac, ip: ip }])
             .select()
 
         if (erroInsercao) {
@@ -128,8 +108,7 @@ app.post("/register-ip", async (req, rep) => {
     }
 })
 
-
-// ROTA: Autenticação de Senha (Antiga, mantida por compatibilidade caso use)
+// ROTA: Autenticação de Senha
 app.post("/pass", async (req, rep) => {
     const mac = req.body?.mac
     const passeString = req.body?.pass 
@@ -194,30 +173,19 @@ app.post("/update", async (req, rep) => {
     }
 })
 
-// ROTA PUSH INTEGRADA (Atende Facial, App e Teclado Físico)
 app.post("/push", async (req, rep) => {
     const dados = { "equipe": null, "user": null, "opentime": 10000, "ip": null, "skipHistorico": false, "from": "null" }
     const raw = req.body?.pass
     const mac = req.body?.mac
     const user = req.body?.user
     const from = req.body?.from
-    const device_secret = req.body?.device_secret
     
     try {
-        const macClean = String(mac || "").trim().toUpperCase();
-
-        // 1. Se vier device_secret e for do ESP32 (Fisico/Facial), valida a autenticidade
-        if ((from === "Facial" || raw) && device_secret) {
-           const isValid = await validateDevice(macClean, device_secret);
-           if (!isValid) {
-               return rep.status(401).send({ error: "Device secret invalido. Acesso Negado." });
-           }
-        }
-
-        // 2. Fluxo: Acionamento via App ou Facial
-        if (user != null || from === "Facial" || from === "App") {
-            dados.user = user || (from === "Facial" ? "Usuário Facial" : "Usuário App");
+        if (user != null || from != null) {
+            dados.user = user || "Usuário App";
             dados.from = from || "App";
+        
+            const macClean = String(mac || "").trim().toUpperCase();
         
             const { data: equipData, error: equipErr } = await supabase
                 .from("equipes")
@@ -233,8 +201,7 @@ app.post("/push", async (req, rep) => {
             dados.equipe = equipData.id;
             dados.opentime = equipData.opentime || 10000;
 
-        // 3. Fluxo: Acionamento via Teclado Físico (pass numérico de 8 dígitos)
-        } else if (raw) {
+        } else {
             const senha = typeof raw === 'string' ? Number(raw) : raw
 
             if (String(senha).length !== 8) {
@@ -244,7 +211,6 @@ app.post("/push", async (req, rep) => {
                 return rep.status(400).send({ error: "Senha não fornecida" })
             }
 
-            // Busca passe de usuário comum
             const { data, error: erroTake } = await supabase
                 .from("userequips")
                 .select("equipes(id, opentime), usuarios(user)")
@@ -252,13 +218,12 @@ app.post("/push", async (req, rep) => {
                 .single()
 
             if (erroTake) {
-                // Se não achou em usuários comuns, verifica se é senha Admin
                 if (erroTake.code === "PGRST116") {
                     try {
                         const { error: errorAdm, data: dataAdm } = await supabase
                             .from("IPs")
                             .select("id") 
-                            .ilike("mac", macClean)
+                            .ilike("mac", mac)
                             .eq("passAdmin", senha)
                             .single()
 
@@ -277,7 +242,7 @@ app.post("/push", async (req, rep) => {
                             const { data: dataEq, error: errorEq } = await supabase
                                 .from("equipes")
                                 .select("id, opentime")
-                                .ilike("mac", macClean)
+                                .ilike("mac", mac)
                                 .maybeSingle()
 
                             if (errorEq || !dataEq) {
@@ -305,13 +270,10 @@ app.post("/push", async (req, rep) => {
                 const sketchT = data?.equipes?.opentime
                 if (sketchT != null) dados.opentime = sketchT
             }
-        } else {
-             return rep.status(400).send({ error: "Payload invalido" })
         }
 
-        // 4. Salva o histórico (se não for login vazio de admin)
         if (!dados.skipHistorico) {
-            await pushAtive(macClean)
+            await pushAtive(mac)
             
             const { error: erroInsert } = await supabase
                 .from("historico")
@@ -324,21 +286,18 @@ app.post("/push", async (req, rep) => {
 
             if (erroInsert) throw erroInsert
 
-            // Se o acionamento veio via facial ou app web, é necessário notificar o ESP32 ativamente
             if (dados.from === "Facial" || dados.from === "App") {
                 handleConfirm(dados.opentime);
             }
 
             return rep.send({
-                confirm: true,
-                message: dados.from === "Físico" ? "Acesso Liberado!" : "Sistema ativado remotamente!",
+                confirm: dados.from === "Facial" ? "Sistema ativado pelo facial" : "Sistema ativado com sucesso pelo App/Node!",
                 opentime: dados.opentime,
             })
         } else {
             app.log.info("Ativação de Admin sem equipe: Histórico ignorado.")
             return rep.send({
-                confirm: true,
-                message: "Sistema ativado (Admin)!",
+                confirm: "Sistema ativado com sucesso pelo Node (Admin)!",
                 opentime: dados.opentime,
             })
         }
@@ -360,6 +319,7 @@ const pushAtive = async (mac) => {
         return ""
     }
 }
+
 
 const saveData = async (ldr, values, mac, ip, ldrUse) => {
     if (!Array.isArray(ldr) || ldr.length < 10 || !mac) {
@@ -433,7 +393,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
                 novosHistoricos.push({
-                    user: globalActiveUser,
+                    user: globalActiveUser, // <-- Quem ativou o sistema
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Retirada`,
                     equipid: equipId
@@ -441,7 +401,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
             }
             else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
                 novosHistoricos.push({
-                    user: globalActiveUser,
+                    user: globalActiveUser, // <-- Quem ativou o sistema (Lázaro, não a Marlize)
                     from: globalActiveFrom,
                     descricao: `Chave ${numeroChave} Devolvida`,
                     equipid: equipId
@@ -570,8 +530,6 @@ async function handleConfirm(openT) {
     const timeout = setTimeout(() => controller.abort(), 7000)
     const payload = { "ative": true, "time": openT }
 
-    // NOTA: Para uso dinâmico em produção, o NGROK_ESP32_URL precisa 
-    // ser atualizado pela URL no banco (tabela IPs) se houver mudanças.
     const urlFinal = `${NGROK_ESP32_URL}/led`
 
     try {
