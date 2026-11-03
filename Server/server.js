@@ -401,7 +401,13 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
 
             newState[chaveName] = estadoAtualFisico;
 
-            if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
+            // Invertendo a ordem dos pushes para alinhar com o sinal original do ESP32
+            if (estadoAtualFisico === true && estadoAnteriorNoBanco === true) {
+                // Se continua no mesmo estado, não faz nada
+            }
+            
+            // Se mudou o estado físico, inverte os textos aqui:
+            if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
                 novosHistoricos.push({
                     user: globalActiveUser,
                     from: globalActiveFrom,
@@ -409,7 +415,7 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                     equipid: equipId
                 });
             }
-            else if (estadoAtualFisico === true && estadoAnteriorNoBanco === false) {
+            else if (estadoAtualFisico === false && estadoAnteriorNoBanco === true) {
                 novosHistoricos.push({
                     user: globalActiveUser,
                     from: globalActiveFrom,
@@ -418,7 +424,6 @@ const saveData = async (ldr, values, mac, ip, ldrUse) => {
                 });
             }
         }
-
         if (novosHistoricos.length > 0) {
             const { error: histError } = await supabase
                 .from("historico")
