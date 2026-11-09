@@ -817,7 +817,7 @@ void loop() {
 
     systemLdr();
     for (int i = 0; i < 10; i++) {
-      newTrue[i] = (ldrUpdateSys[i] > 10);
+      newTrue[i] = (ldrUpdateSys[i] < 6);
       
       if (newTrue[i] != listaTrue[i]) { 
         teveMudanca = true;
